@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 from transformers import AutoTokenizer
 
@@ -7,7 +8,7 @@ from rllm.data.dataset import DatasetRegistry
 from rllm.engine.agent_execution_engine import AgentExecutionEngine
 from rllm.environments.tools.tool_env import ToolEnvironment
 from rllm.rewards.reward_fn import math_reward_fn
-from rllm.utils import compute_pass_at_k
+from rllm.utils.compute_pass_at_k import compute_pass_at_k
 
 if __name__ == "__main__":
     import os
@@ -41,15 +42,14 @@ if __name__ == "__main__":
         max_prompt_length=2048,
         n_parallel_agents=n_parallel_agents,
     )
-
+    
     test_dataset = DatasetRegistry.load_dataset("aime2024", "test")
     if test_dataset is None:
         print("Dataset not found, preparing dataset...")
         from prepare_math_data import prepare_math_data
 
         _, test_dataset = prepare_math_data()
-
-    tasks = test_dataset.repeat(n=8)  # repeat to evaluate pass@k
-
+    
+    tasks = test_dataset.repeat(n=1)  # repeat to evaluate pass@k
     results = asyncio.run(engine.execute_tasks(tasks))
     compute_pass_at_k(results)

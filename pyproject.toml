@@ -1,3 +1,7 @@
+[[tool.uv.index]]
+url = "https://mirrors.ustc.edu.cn/pypi/web/simple"
+default = true
+
 [build-system]
 requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
