@@ -117,3 +117,21 @@ Central `ToolRegistry` with built-in: `PythonInterpreter`, `GoogleSearchTool`, `
 - `rllm/patches/` contains monkey patches for third-party libraries (apply carefully).
 - Workflows should extend `Workflow` and implement `async run()`. Use `postprocess_episode()` for consistent error/termination handling.
 - Pydantic `BaseModel` constructors must use keyword arguments.
+
+## Additional CLI Commands
+```bash
+rllm model setup         # Configure model provider
+rllm dataset list        # List available datasets
+rllm init                # Initialize a new rllm project
+rllm login               # Login to model providers
+```
+
+## Directory Structure
+
+- **`agenthub/`** — Framework-specific agent implementations (SmolAgent, Strands, LangGraph, terminal, SWE agents). Install via `[all]` or individually.
+- **`rllm-model-gateway/`** — LiteLLM-based proxy that captures token IDs and logprobs for training. Acts as the inference layer between agents and model providers.
+- **`rllm/experimental/fully_async/`** — Fully async PPO training with decoupled rollout and training via message queue. Uses SGLang backend for rollout generation.
+
+## RL Algorithms
+
+Supported algorithms via `rllm/experimental/common/rl_algo.py`: GRPO, REINFORCE, RLOO, rejection sampling. Configure via `trainer.rl_algo` in Hydra configs.
