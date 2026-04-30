@@ -43,7 +43,8 @@ if __name__ == "__main__":
         n_parallel_agents=n_parallel_agents,
     )
     
-    test_dataset = DatasetRegistry.load_dataset("aime2024", "test")
+    test_dataset = DatasetRegistry.load_dataset("aime2024", "test")[:1]
+
     if test_dataset is None:
         print("Dataset not found, preparing dataset...")
         from prepare_math_data import prepare_math_data
@@ -53,3 +54,8 @@ if __name__ == "__main__":
     tasks = test_dataset.repeat(n=1)  # repeat to evaluate pass@k
     results = asyncio.run(engine.execute_tasks(tasks))
     compute_pass_at_k(results)
+
+    if results:
+        traj_dict = results[0].to_dict()
+        print(json.dumps(traj_dict, indent=2, ensure_ascii=False))
+
