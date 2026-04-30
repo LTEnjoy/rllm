@@ -11,6 +11,22 @@ from rllm.rewards.reward_fn import math_reward_fn
 from rllm.utils.compute_pass_at_k import compute_pass_at_k
 
 if __name__ == "__main__":
+    # from openai import OpenAI
+    # client = OpenAI(
+    #     api_key="sk-cp-6GAU5uz5mgdHd2eFAVj6GZYim6MdZQnROkO--M1h2a8uWAeL5vqxbLSoXYakkJzIsN0iuPy-iKpxd7JEFazYa2V8K0iez3B-ubZtgkf-C6nwGrdokCealrU",
+    #     base_url="https://api.minimaxi.com/v1"
+    # )
+    #
+    # response = client.chat.completions.create(
+    #     model="MiniMax-M2.7",
+    #     messages=[
+    #         {"role": "user", "content": "你好！"},
+    #     ],
+    #     temperature=0
+    # )
+    #
+    # print(response.choices[0].message.content)
+    
     import os
 
     os.environ["TOKENIZERS_PARALLELISM"] = "true"
@@ -18,7 +34,6 @@ if __name__ == "__main__":
     n_parallel_agents = 64
 
     model_name = "Qwen/Qwen3-4B"
-
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     agent_args = {"tools": ["python"], "parser_name": "qwen", "system_prompt": "You are a math assistant that can write python to solve math problems."}
@@ -27,7 +42,10 @@ if __name__ == "__main__":
         "reward_fn": math_reward_fn,
     }
 
-    sampling_params = {"temperature": 0.6, "top_p": 0.95, "model": model_name}
+    sampling_params = {
+        "temperature": 0,
+        "model": "MiniMax-M2.7"
+    }
 
     engine = AgentExecutionEngine(
         agent_class=ToolAgent,
@@ -35,22 +53,29 @@ if __name__ == "__main__":
         env_class=ToolEnvironment,
         env_args=env_args,
         engine_name="openai",
-        rollout_engine_args={"base_url": "http://localhost:30000/v1", "api_key": "None"},
+        rollout_engine_args={
+            "base_url": "https://api.minimaxi.com/v1/chat",
+            "api_key": "sk-cp-6GAU5uz5mgdHd2eFAVj6GZYim6MdZQnROkO--M1h2a8uWAeL5vqxbLSoXYakkJzIsN0iuPy-iKpxd7JEFazYa2V8K0iez3B-ubZtgkf-C6nwGrdokCealrU"
+            # "base_url": "http://localhost:30000/v1",
+            # "api_key": "None"
+        },
         tokenizer=tokenizer,
         sampling_params=sampling_params,
         max_response_length=16384,
         max_prompt_length=2048,
         n_parallel_agents=n_parallel_agents,
     )
-    
-    test_dataset = DatasetRegistry.load_dataset("aime2024", "test")[:1]
+
+    test_dataset = DatasetRegistry.load_dataset("aime2024", "test")
+    test_dataset.data = test_dataset.data[:1]
+    print(len(test_dataset))
 
     if test_dataset is None:
         print("Dataset not found, preparing dataset...")
         from prepare_math_data import prepare_math_data
 
         _, test_dataset = prepare_math_data()
-    
+
     tasks = test_dataset.repeat(n=1)  # repeat to evaluate pass@k
     results = asyncio.run(engine.execute_tasks(tasks))
     compute_pass_at_k(results)
