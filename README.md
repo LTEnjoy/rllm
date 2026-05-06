@@ -29,7 +29,7 @@ Read more on our [documentation site](https://docs.rllm-project.com/).
 
 ## Installation
 
-rLLM requires `Python >= 3.10` (`3.11` is needed if using `tinker`). You can install it either directly via pip or build from source.
+rLLM requires `Python >= 3.11`. You can install it either directly via pip or build from source.
 
 ```bash
 uv pip install "rllm @ git+https://github.com/rllm-org/rllm.git"
@@ -69,15 +69,14 @@ Define a rollout (your agent) and an evaluator (your reward function), then hand
 # my_flow.py
 from openai import OpenAI
 import rllm
-from rllm.experimental.eval.types import AgentConfig, Task
-from rllm.types import Episode, Trajectory
+from rllm.types import AgentConfig, Episode, Task, Trajectory
 
 @rllm.rollout
 def solve(task: Task, config: AgentConfig) -> Episode:
     client = OpenAI(base_url=config.base_url, api_key="EMPTY")
     response = client.chat.completions.create(
         model=config.model,
-        messages=[{"role": "user", "content": task.data["question"]}],
+        messages=[{"role": "user", "content": task.instruction}],
     )
     answer = response.choices[0].message.content or ""
     return Episode(
@@ -89,12 +88,12 @@ def solve(task: Task, config: AgentConfig) -> Episode:
 ```python
 # my_evaluator.py
 import rllm
-from rllm.experimental.eval.types import EvalOutput, Signal, _extract_agent_answer
+from rllm.eval.types import EvalOutput, Signal
 from rllm.types import Episode
 
 @rllm.evaluator
 def score(task: dict, episode: Episode) -> EvalOutput:
-    answer = _extract_agent_answer(episode)
+    answer = str(episode.artifacts.get("answer", ""))
     is_correct = answer.strip() == task["ground_truth"].strip()
     reward = 1.0 if is_correct else 0.0
     return EvalOutput(reward=reward, is_correct=is_correct,
@@ -145,10 +144,13 @@ Under the hood:
 - [PettingLLMs](https://github.com/pettingllms-ai/PettingLLMs) — Multi-agent RL with on-policy training [![Stars](https://img.shields.io/github/stars/pettingllms-ai/PettingLLMs)](https://github.com/pettingllms-ai/PettingLLMs)
 - [SETA](https://github.com/camel-ai/seta) — Scaling environments for terminal agents [![Stars](https://img.shields.io/github/stars/camel-ai/seta)](https://github.com/camel-ai/seta)
 - [LLM-in-Sandbox](https://github.com/llm-in-sandbox/llm-in-sandbox) — Building general agents by running LLMs in a sandbox [![Stars](https://img.shields.io/github/stars/llm-in-sandbox/llm-in-sandbox)](https://github.com/llm-in-sandbox/llm-in-sandbox)
+- [Vision-DeepResearch](https://github.com/Osilly/Vision-DeepResearch) — The first long-horizon multimodal deep-research MLLM [![Stars](https://img.shields.io/github/stars/Osilly/Vision-DeepResearch)](https://github.com/Osilly/Vision-DeepResearch)
 - [Cogito, Ergo Ludo](https://www.arxiv.org/abs/2509.25052) — An agent that learns to play by reasoning and planning
 - [Cut the Bill, Keep the Turns](https://agate-slipper-ef0.notion.site/Cut-the-Bill-Keep-the-Turns-Affordable-Multi-Turn-Search-RL-003f78214a4d451fb06f453d084e666c) — Affordable multi-turn search RL
 - [Experiential Reinforcement Learning](https://arxiv.org/abs/2602.13949) — Experience-reflection-consolidation loop for RL with sparse rewards
 - [V1: Unifying Generation and Self-Verification](https://arxiv.org/abs/2603.04304) — Pairwise self-verification for parallel test-time scaling
+- [TherapyGym](https://therapygym.stanford.edu/) - Evaluating and Aligning Clinical Fidelity and Safety in Therapy Chatbots
+- [SandMLE](https://arxiv.org/pdf/2604.04872) - Synthetic Sandbox for Training MLE Agents
 ## Articles & Blog Posts
 
 - [rLLM UI: Real-Time Observability Tool for Agent Training & Evaluation](https://rllm-project.com/post.html?post=rllm_ui.md) — Mar 2026

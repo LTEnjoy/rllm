@@ -37,6 +37,7 @@ class GatewayClient:
         self,
         session_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        sampling_params: dict[str, Any] | None = None,
     ) -> str:
         """Create a session (or let the gateway generate an ID)."""
         body: dict[str, Any] = {}
@@ -44,6 +45,8 @@ class GatewayClient:
             body["session_id"] = session_id
         if metadata:
             body["metadata"] = metadata
+        if sampling_params:
+            body["sampling_params"] = sampling_params
         resp = self._http.post(f"{self.gateway_url}/sessions", json=body)
         resp.raise_for_status()
         return resp.json()["session_id"]
@@ -160,12 +163,15 @@ class AsyncGatewayClient:
         self,
         session_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        sampling_params: dict[str, Any] | None = None,
     ) -> str:
         body: dict[str, Any] = {}
         if session_id:
             body["session_id"] = session_id
         if metadata:
             body["metadata"] = metadata
+        if sampling_params:
+            body["sampling_params"] = sampling_params
         resp = await self._http.post(f"{self.gateway_url}/sessions", json=body)
         resp.raise_for_status()
         return resp.json()["session_id"]

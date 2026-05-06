@@ -18,7 +18,6 @@ from tinker.types import AdamParams
 from tinker_cookbook import checkpoint_utils
 from tinker_cookbook.tokenizer_utils import Tokenizer
 
-from rllm.agents.agent import TrajectoryGroup
 from rllm.experimental.common import (
     AlgorithmConfig,
     CompactFilteringConfig,
@@ -26,6 +25,7 @@ from rllm.experimental.common import (
     rLLMAdvantageEstimator,
 )
 from rllm.trainer.tinker.transform import transform_trajectory_groups_to_datums
+from rllm.types import TrajectoryGroup
 
 if TYPE_CHECKING:
     import torch
@@ -43,6 +43,7 @@ ADV_TO_LOSS_FN_AUTO_MAP = {
 }
 
 DEFAULT_LOSS_FN = "importance_sampling"
+TINKER_KNOWN_LOSSES = {"importance_sampling", "ppo", "cispo", "dro", "cross_entropy"}
 
 
 # helper decorator for any function requiring a training client to be initialized
@@ -106,8 +107,14 @@ class TinkerPolicyTrainer:
         self.training_client = None
         # fill in the default versions of the configs if not provided
         self.cf_config = cf_config or CompactFilteringConfig.from_config(self.config.rllm.compact_filtering)
-        self.transform_config = transform_config or TransformConfig()
-        self.algorithm_config = algorithm_config or AlgorithmConfig.from_config(self.config)
+        self.transform_config = transform_config or TransformConfig.from_config(
+            self.config.rllm.get("transform", {}),
+            broadcast=self.config.rllm.stepwise_advantage.mode == "broadcast",
+        )
+        self.algorithm_config = algorithm_config or AlgorithmConfig.from_config(
+            self.config.rllm.algorithm,
+            stepwise_advantage_mode=self.config.rllm.stepwise_advantage.mode,
+        )
 
     async def initialize_async(self, resume_from_checkpoint: bool = True):
         """
@@ -141,11 +148,7 @@ class TinkerPolicyTrainer:
         if resume_info:
             # Resume from checkpoint
             logger.info(f"Resuming from checkpoint: {resume_info}")
-            try:
-                self.training_client = await self.service_client.create_training_client_from_state_async(resume_info["state_path"])
-            except Exception as e:
-                logger.error(f"Failed to resume from checkpoint: {e}")
-                raise
+            self.training_client = await self.service_client.create_training_client_from_state_async(resume_info["state_path"])
 
             if "sampler_path" in resume_info:
                 logger.info(f"Using sampler checkpoint: {resume_info['sampler_path']}")
@@ -198,7 +201,10 @@ class TinkerPolicyTrainer:
         if isinstance(training_datums, dict):
             for group_role, datums in training_datums.items():
                 estimator = estimator_map.get(group_role, self.algorithm_config.estimator)
-                loss_fn = algorithm_config.loss_fn or ADV_TO_LOSS_FN_AUTO_MAP.get(estimator, DEFAULT_LOSS_FN)
+                loss_fn = algorithm_config.loss_fn_map.get(group_role) or algorithm_config.loss_fn or ADV_TO_LOSS_FN_AUTO_MAP.get(estimator, DEFAULT_LOSS_FN)
+                if loss_fn not in TINKER_KNOWN_LOSSES:
+                    logger.warning(f"Unknown Tinker loss '{loss_fn}' for role '{group_role}', falling back to '{DEFAULT_LOSS_FN}'")
+                    loss_fn = DEFAULT_LOSS_FN
                 fwd_bwd_future = await self.training_client.forward_backward_async(
                     [self._remove_mask(datum) for datum in datums],
                     loss_fn=loss_fn,  # type: ignore[attr-defined]
@@ -255,12 +261,18 @@ class TinkerPolicyTrainer:
         # Wait for completion and extract logprobs
         fwd_bwd_results = await asyncio.gather(*fwd_bwd_futures)
 
-        # Extract training logprobs from loss_fn_outputs
+        # Extract training logprobs and server-side metrics from results
         training_logprobs = []
         for fwd_bwd_result in fwd_bwd_results:
             for output in fwd_bwd_result.loss_fn_outputs:
                 logprobs = output["logprobs"].to_torch()
                 training_logprobs.append(logprobs)
+            # Capture server-side metrics (e.g. loss) under train/ prefix
+            if fwd_bwd_result.metrics:
+                for k, v in fwd_bwd_result.metrics.items():
+                    if k.startswith("clock_cycle"):
+                        continue
+                    adv_metrics[f"train/{k.replace(':', '/')}"] = v
 
         return training_datums, training_logprobs, adv_metrics
 
@@ -335,6 +347,11 @@ class TinkerPolicyTrainer:
             for output in fwd_bwd_result.loss_fn_outputs:
                 logprobs = output["logprobs"].to_torch()
                 training_logprobs.append(logprobs)
+            if fwd_bwd_result.metrics:
+                for k, v in fwd_bwd_result.metrics.items():
+                    if k.startswith("clock_cycle"):
+                        continue
+                    adv_metrics[f"train/{k.replace(':', '/')}"] = v
 
         return training_datums, training_logprobs, adv_metrics, scheduled_learning_rate
 
@@ -388,6 +405,9 @@ class TinkerPolicyTrainer:
         Returns:
             Resume info dictionary or None if no checkpoint exists
         """
+        # TODO: default_local_dir is shared across all experiments (e.g. /tmp/rllm-tinker-checkpoints),
+        # so this can load checkpoints from a different model/experiment. Should scope by experiment
+        # name like tinker-cookbook does with its per-experiment log_path.
         return checkpoint_utils.get_last_checkpoint(self.config.training.default_local_dir)
 
     @require_training_client

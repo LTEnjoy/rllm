@@ -1,7 +1,7 @@
-from rllm.agents.agent import Episode, Step, Trajectory
 from rllm.engine import ModelOutput, RolloutEngine
 from rllm.rewards.reward_fn import RewardFunction
 from rllm.trainer.distill import compute_step_distill_advantage
+from rllm.types import Episode, Step, Trajectory
 from rllm.workflows.workflow import TerminationEvent, TerminationReason, Workflow
 
 
@@ -14,14 +14,23 @@ class DistillationWorkflow(Workflow):
     Args:
         rollout_engine: The rollout engine for generating student responses.
         reward_function: Optional reward function for computing step rewards.
-        teacher_engine: The rollout engine for the teacher model (can be same as student for OPSD).
+        teacher_engine: The rollout engine for the teacher model.
         shared_tokenizer: Whether student and teacher share the same tokenizer.
         clip_min: Minimum value for clipping per-token advantages (e.g., -5.0).
         clip_max: Maximum value for clipping per-token advantages (e.g., 5.0).
         **kwargs: Additional arguments passed to Workflow.
     """
 
-    def __init__(self, rollout_engine: RolloutEngine, reward_function: RewardFunction | None = None, teacher_engine: RolloutEngine | None = None, shared_tokenizer: bool = False, clip_min: float | None = None, clip_max: float | None = None, **kwargs):
+    def __init__(
+        self,
+        rollout_engine: RolloutEngine,
+        reward_function: RewardFunction | None = None,
+        teacher_engine: RolloutEngine | None = None,
+        shared_tokenizer: bool = False,
+        clip_min: float | None = None,
+        clip_max: float | None = None,
+        **kwargs,
+    ):
         super().__init__(rollout_engine, **kwargs)
         self.reward_function = reward_function
         self.teacher_engine = teacher_engine

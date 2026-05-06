@@ -14,10 +14,10 @@ from typing import TYPE_CHECKING, Generic, TypeVar
 
 from omegaconf import DictConfig
 
-from rllm.agents.agent import Episode
 from rllm.data import Dataset
 from rllm.experimental.common.advantage import AlgorithmConfig, collect_reward_and_advantage_from_trajectory_groups
 from rllm.experimental.rollout import RolloutEngine
+from rllm.types import Episode
 
 if TYPE_CHECKING:
     from rllm.experimental.engine.unified_workflow_engine import UnifiedWorkflowEngine
@@ -203,6 +203,10 @@ class BackendProtocol(ABC, Generic[TDataset, TBatch]):
 
     async def on_epoch_end(self, trainer_state: TrainerState) -> None:
         """Hook method called at the end of an epoch."""
+        pass
+
+    async def on_policy_updated(self, trainer_state: TrainerState) -> None:
+        """Hook called immediately after update_policy() for weight sync."""
         pass
 
     async def on_validation_start(self, trainer_state: TrainerState) -> bool:

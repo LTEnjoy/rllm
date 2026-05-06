@@ -216,5 +216,13 @@ uv.lock
 
 # Legacy issue: we will ignore the "verl" folder, which was installed by many as submodule before
 /verl/
-# Local venvs
-.venv*
+
+# GCP service account keys
+gcp-key.json
+
+# litellm proxy auto-generated config (may contain API keys)
+**/litellm_proxy_config_autogen.yaml
+**/.litellm_proxy/
+
+# IDE
+.vscode/

@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -77,12 +78,14 @@ class ReverseProxy:
         strip_vllm: bool = True,
         sync_traces: bool = False,
         max_retries: int = 2,
+        local_handler: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
         self.router = router
         self.store = store
         self.strip_vllm = strip_vllm
         self.sync_traces = sync_traces
         self.max_retries = max_retries
+        self.local_handler = local_handler
         self._http: httpx.AsyncClient | None = None
         self._pending_traces: set[asyncio.Task[None]] = set()
 
@@ -141,57 +144,57 @@ class ReverseProxy:
         session_id: str | None,
         originally_requested_logprobs: bool = False,
     ) -> Response:
-        worker = self.router.route(session_id)
-        url = self._build_url(worker.api_url, request.url.path, str(request.url.query))
-        headers = self._forward_headers(request)
         t0 = time.perf_counter()
-        try:
-            resp = await self._send_with_retry(
-                method=request.method,
-                url=url,
-                content=raw_body,
-                headers=headers,
-            )
-            content = resp.content
-        finally:
-            self.router.release(worker.url)
-        latency_ms = (time.perf_counter() - t0) * 1000
 
-        # Parse response for trace extraction
-        try:
-            response_body = json.loads(content)
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            response_body = {}
+        if self.local_handler is not None:
+            # In-process path: call handler directly, no HTTP
+            response_body = await self.local_handler(request_body)
+            status_code = 200
+        else:
+            # HTTP proxy path
+            worker = self.router.route(session_id)
+            url = self._build_url(worker.api_url, request.url.path, str(request.url.query))
+            headers = self._forward_headers(request)
+            try:
+                resp = await self._send_with_retry(
+                    method=request.method,
+                    url=url,
+                    content=raw_body,
+                    headers=headers,
+                )
+                content = resp.content
+                status_code = resp.status_code
+            finally:
+                self.router.release(worker.url)
+
+            # Parse response for trace extraction
+            try:
+                response_body = json.loads(content)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                response_body = {}
+
+        latency_ms = (time.perf_counter() - t0) * 1000
 
         # Persist trace
         if session_id and response_body:
             trace = build_trace_record(session_id, request_body, response_body, latency_ms)
             await self._persist(trace)
 
-        # Sanitise response — fast path when nothing needs modifying
+        # Sanitise response
         needs_strip_vllm = self.strip_vllm
         needs_strip_logprobs = not originally_requested_logprobs
-        if not needs_strip_vllm and not needs_strip_logprobs:
-            return Response(
-                content=content,
-                status_code=resp.status_code,
-                media_type=resp.headers.get("content-type", "application/json"),
-            )
 
+        sanitized = response_body
         if isinstance(response_body, dict) and response_body:
-            sanitized = strip_vllm_fields(response_body) if needs_strip_vllm else response_body
+            if needs_strip_vllm:
+                sanitized = strip_vllm_fields(response_body)
             if needs_strip_logprobs:
                 sanitized = _strip_logprobs(sanitized)
-            return Response(
-                content=json.dumps(sanitized),
-                status_code=resp.status_code,
-                media_type="application/json",
-            )
 
         return Response(
-            content=content,
-            status_code=resp.status_code,
-            media_type=resp.headers.get("content-type", "application/json"),
+            content=json.dumps(sanitized),
+            status_code=status_code,
+            media_type="application/json",
         )
 
     # ------------------------------------------------------------------
@@ -206,6 +209,9 @@ class ReverseProxy:
         session_id: str | None,
         originally_requested_logprobs: bool = False,
     ) -> StreamingResponse:
+        if self.local_handler is not None:
+            return await self._handle_streaming_local(request_body, session_id, originally_requested_logprobs)
+
         worker = self.router.route(session_id)
         url = self._build_url(worker.api_url, request.url.path, str(request.url.query))
         headers = self._forward_headers(request)
@@ -217,7 +223,44 @@ class ReverseProxy:
             content=raw_body,
             headers=headers,
         )
-        resp = await upstream.__aenter__()
+        # Retry is needed because pooled TCP connections can go stale during the
+        # weight-update idle window: VPC silently drops idle sockets, and the next
+        # request on that socket fails with httpx.ReadError / RemoteProtocolError
+        # ("Server disconnected without sending a response") / ConnectError.
+        # Without retry, these transient failures propagate as failed rollouts and
+        # surface as ASGI exceptions in the agent loop.  The retry uses a fresh
+        # single-use client (no pool) so it cannot hit another stale socket.
+        # retry_client is non-None only when we fell back; event_generator's
+        # finally block closes it after streaming completes.
+        retry_client: httpx.AsyncClient | None = None
+        try:
+            resp = await upstream.__aenter__()
+        except (httpx.ReadError, httpx.ConnectError, httpx.RemoteProtocolError, httpx.TimeoutException) as first_exc:
+            logger.warning(
+                "Connection error to %s (type=%s, msg=%s). Retrying with a fresh connection.",
+                url,
+                type(first_exc).__name__,
+                first_exc,
+            )
+
+            retry_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(timeout=None),
+                limits=httpx.Limits(max_connections=1, max_keepalive_connections=0),
+                follow_redirects=True,
+            )
+            retry_upstream = retry_client.stream(
+                method=request.method,
+                url=url,
+                content=raw_body,
+                headers=headers,
+            )
+            try:
+                resp = await retry_upstream.__aenter__()
+                upstream = retry_upstream
+            except Exception:
+                await retry_client.aclose()
+                self.router.release(worker.url)
+                raise
 
         t0 = time.perf_counter()
         chunks: list[dict[str, Any]] = []
@@ -253,6 +296,8 @@ class ReverseProxy:
                     yield line + "\n"
             finally:
                 await upstream.__aexit__(None, None, None)
+                if retry_client is not None:
+                    await retry_client.aclose()
                 self.router.release(worker.url)
 
                 latency_ms = (time.perf_counter() - t0) * 1000
@@ -277,6 +322,107 @@ class ReverseProxy:
             media_type="text/event-stream",
             status_code=resp.status_code,
         )
+
+    async def _handle_streaming_local(
+        self,
+        request_body: dict[str, Any],
+        session_id: str | None,
+        originally_requested_logprobs: bool = False,
+    ) -> StreamingResponse:
+        """Handle streaming when using a local handler (fake-streaming)."""
+        assert self.local_handler is not None
+        t0 = time.perf_counter()
+        response_body = await self.local_handler(request_body)
+        latency_ms = (time.perf_counter() - t0) * 1000
+
+        # Persist trace from the full response
+        if session_id and response_body:
+            trace = build_trace_record(session_id, request_body, response_body, latency_ms)
+            await self._persist(trace)
+
+        needs_strip_vllm = self.strip_vllm
+        needs_strip_logprobs = not originally_requested_logprobs
+
+        # Build SSE chunks from the complete response
+        chat_id = response_body.get("id", "chatcmpl-local")
+        created = response_body.get("created", int(time.time()))
+        model = response_body.get("model", "")
+        choices = response_body.get("choices", [])
+        first_choice = choices[0] if choices else {}
+        message = first_choice.get("message", {})
+        finish_reason = first_choice.get("finish_reason", "stop")
+
+        def _sanitize_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
+            sanitized = strip_vllm_fields(chunk) if needs_strip_vllm else chunk
+            if needs_strip_logprobs:
+                sanitized = _strip_logprobs(sanitized)
+            return sanitized
+
+        async def event_generator():
+            def _sse(data: str) -> str:
+                return f"data: {data}\n\n"
+
+            # Chunk 1: role
+            yield _sse(
+                json.dumps(
+                    _sanitize_chunk(
+                        {
+                            "id": chat_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model,
+                            "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}],
+                        }
+                    )
+                )
+            )
+
+            # Chunk 2: full content + token data
+            delta: dict[str, Any] = {}
+            if message.get("content"):
+                delta["content"] = message["content"]
+            if message.get("reasoning"):
+                delta["reasoning"] = message["reasoning"]
+            if message.get("tool_calls"):
+                delta["tool_calls"] = message["tool_calls"]
+
+            content_chunk: dict[str, Any] = {
+                "id": chat_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": delta,
+                        "finish_reason": None,
+                        "token_ids": first_choice.get("token_ids", []),
+                        "logprobs": first_choice.get("logprobs"),
+                    }
+                ],
+                "prompt_token_ids": response_body.get("prompt_token_ids", []),
+            }
+            yield _sse(json.dumps(_sanitize_chunk(content_chunk)))
+
+            # Chunk 3: finish + usage
+            yield _sse(
+                json.dumps(
+                    _sanitize_chunk(
+                        {
+                            "id": chat_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model,
+                            "choices": [{"index": 0, "delta": {}, "finish_reason": finish_reason}],
+                            "usage": response_body.get("usage", {}),
+                        }
+                    )
+                )
+            )
+
+            yield _sse("[DONE]")
+
+        return StreamingResponse(event_generator(), media_type="text/event-stream", status_code=200)
 
     # ------------------------------------------------------------------
     # Internals

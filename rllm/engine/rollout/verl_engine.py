@@ -1,6 +1,6 @@
-import asyncio
 import uuid
 
+import torch
 from verl.experimental.agent_loop.agent_loop import AgentLoopManager, AsyncLLMServerManager
 from verl.workers.rollout.replica import TokenOutput
 
@@ -17,7 +17,10 @@ class VerlEngine(RolloutEngine):
             raise ValueError(f"VerlEngine only supports vllm or sglang rollout, but got {config.actor_rollout_ref.rollout.name}")
 
         self.rollout_manager: AgentLoopManager = rollout_manager
-        self.server_manager = AsyncLLMServerManager(config, server_handles=rollout_manager.server_handles)
+        # reconstruct the servers list from the server_addresses and server_handles (Verl 0.7.0+)
+        servers = zip(rollout_manager.server_addresses, rollout_manager.server_handles, strict=True)
+        self.server_manager = AsyncLLMServerManager(config, servers=servers, load_balancer_handle=rollout_manager.global_load_balancer)
+
         self.tokenizer = tokenizer
         self.processor = processor
         self.chat_parser = ChatTemplateParser.get_parser(tokenizer, processor=processor, disable_thinking=config.get("rllm", {}).get("disable_thinking", False))
@@ -43,7 +46,7 @@ class VerlEngine(RolloutEngine):
         print(f"train_sampling_params: {self.train_sampling_params}")
         print(f"val_sampling_params: {self.val_sampling_params}")
 
-        self.validate = False  # flag enabled/disabled by AgentWorkflowEngine.execute_tasks_verl
+        self.validate = False
 
     async def get_model_response(self, messages: list[dict], **kwargs) -> ModelOutput:
         application_id = kwargs.pop("application_id", str(uuid.uuid4()))
@@ -58,16 +61,21 @@ class VerlEngine(RolloutEngine):
         sampling_params.update(kwargs)
 
         max_tokens = sampling_params.pop("max_tokens", sampling_params.pop("max_new_tokens", self.max_response_length))
+        # starting from verl 0.7.0, we can pass in per-turn max_tokens into the sampling_params
+        sampling_params["max_tokens"] = max_tokens
 
         prompt = self.chat_parser.parse(messages, add_generation_prompt=True, is_first_msg=True, tools=tools, accumulate_reasoning=accumulate_reasoning)
         request_prompt_ids = self.tokenizer.encode(prompt, add_special_tokens=False)  # list[int]
 
         if any(msg.get("images", None) is not None and msg["role"] == "user" for msg in messages) and self.processor is not None:
             image_data = self.chat_parser.process_image_data(messages)  # list[PIL.Image.Image]
-            model_inputs = self.processor(text=[prompt], images=image_data)
+            model_inputs = self.processor(text=[prompt], images=image_data, return_tensors="pt")
             prompt_ids = model_inputs.pop("input_ids")[0]  # list[int]
             model_inputs.pop("attention_mask")
             multi_modal_inputs = dict(model_inputs)
+            grid_thw = multi_modal_inputs.get("image_grid_thw")
+            if grid_thw is not None:
+                multi_modal_inputs["images_seqlens"] = torch.repeat_interleave(grid_thw[:, 1] * grid_thw[:, 2], grid_thw[:, 0])
         else:
             image_data = None
             multi_modal_inputs = None
@@ -81,12 +89,7 @@ class VerlEngine(RolloutEngine):
         completion_ids: list[int] = token_output.token_ids
         logprobs: list[float] = token_output.log_probs
 
-        finish_reason = "stop"
-        if len(completion_ids) >= max_tokens:
-            finish_reason = "length"
-            completion_ids = completion_ids[:max_tokens]
-            logprobs = logprobs[:max_tokens]
-
+        finish_reason = token_output.stop_reason
         completion_text = self.tokenizer.decode(completion_ids, skip_special_tokens=True)
         # TODO: implement parse_completion for the standard parser
         parsed_output = self.chat_parser.parse_completion(completion_ids)
@@ -104,11 +107,3 @@ class VerlEngine(RolloutEngine):
             completion_length=len(completion_ids),
             finish_reason=finish_reason,
         )
-
-    async def wake_up(self):
-        """Wake up all rollout replica instances asynchronously."""
-        await asyncio.gather(*[replica.wake_up() for replica in self.rollout_manager.rollout_replicas])
-
-    async def sleep(self):
-        """Sleep all rollout replica instances asynchronously."""
-        await asyncio.gather(*[replica.sleep() for replica in self.rollout_manager.rollout_replicas])

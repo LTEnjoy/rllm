@@ -17,9 +17,9 @@ from typing import TYPE_CHECKING
 
 from tqdm import tqdm
 
-from rllm.agents.agent import Episode, Step, Trajectory
-from rllm.experimental.engine.trace_converter import trace_record_to_step
-from rllm.experimental.eval.types import AgentConfig, EvalOutput, Task, run_agent_flow
+from rllm.eval.types import EvalOutput
+from rllm.experimental.engine.trace_converter import compute_step_metrics, trace_record_to_step
+from rllm.types import AgentConfig, Episode, Step, Task, Trajectory, run_agent_flow
 from rllm.utils import colorful_print
 from rllm.workflows.workflow import TerminationReason
 
@@ -27,12 +27,21 @@ if TYPE_CHECKING:
     from rllm_model_gateway.models import TraceRecord
 
     from rllm.experimental.engine.gateway_manager import GatewayManager
-    from rllm.experimental.eval.types import AgentFlow, Evaluator
+    from rllm.types import AgentFlow, Evaluator
     from rllm.utils.episode_logger import EpisodeLogger
 
 logger = logging.getLogger(__name__)
 
 _MIN_FD_LIMIT = 8192
+
+
+class EnrichMismatchError(RuntimeError):
+    """Raised when gateway traces don't align with the agent's reported steps.
+
+    Indicates a real upstream failure (lost trace, empty token_ids in the vLLM
+    response, etc.). process_task_with_retry treats it like any other failure
+    and reissues the rollout.
+    """
 
 
 def _raise_fd_limit(target: int = _MIN_FD_LIMIT) -> None:
@@ -74,6 +83,7 @@ class AgentFlowEngine:
         self.raise_on_error = raise_on_error
         self.episode_logger = episode_logger
         self.executor = ThreadPoolExecutor(max_workers=n_parallel_tasks)
+        self._semaphore = asyncio.Semaphore(n_parallel_tasks)
 
         # Raise the file descriptor limit to avoid "Too many open files" when
         # running many parallel agent flows with individual HTTP clients.
@@ -117,7 +127,7 @@ class AgentFlowEngine:
         for idx, (task, task_id) in enumerate(zip(tasks, task_ids, strict=True)):
             rollout_idx = task_id_counter[task_id]
             task_id_counter[task_id] += 1
-            futures.append(self._process_task_with_retry(task, task_id, rollout_idx, idx, is_validation=is_validation))
+            futures.append(self.process_task_with_retry(task, task_id, rollout_idx, idx, is_validation=is_validation))
 
         with tqdm(total=len(tasks), desc="Generating trajectories") as pbar:
             for future in asyncio.as_completed(futures):
@@ -141,7 +151,7 @@ class AgentFlowEngine:
 
         return ordered_results
 
-    async def _process_task_with_retry(
+    async def process_task_with_retry(
         self,
         task: dict,
         task_id: str,
@@ -150,64 +160,76 @@ class AgentFlowEngine:
         is_validation: bool = False,
     ) -> tuple[str, int, int, Episode]:
         """Process a single task with retry logic."""
-        for retry_attempt in range(1, self.retry_limit + 1):
-            uid = f"{task_id}:{rollout_idx}"
-            try:
-                episode = await self._run_single(task, uid, is_validation=is_validation)
-                episode.id = uid
-                episode.task = task
+        async with self._semaphore:
+            for retry_attempt in range(1, self.retry_limit + 1):
+                uid = f"{task_id}:{rollout_idx}"
+                # Clear any traces from a prior failed attempt so the gateway
+                # doesn't mix old attempt's traces with the new attempt's steps
+                # (positional match in _enrich_episode would then corrupt data).
+                if retry_attempt > 1:
+                    try:
+                        await self.gateway.adelete_session(uid)
+                    except Exception as cleanup_err:
+                        logger.warning("[%s] failed to clear prior traces before retry: %s", uid, cleanup_err)
+                try:
+                    episode = await self._run_single(task, uid, is_validation=is_validation)
+                    episode.id = uid
+                    episode.task = task
 
-                # Display rewards
-                reward_strs = []
-                for traj in episode.trajectories:
-                    reward = "N/A"
-                    if traj.reward is not None:
-                        reward = f"{traj.reward:.1f}"
-                    elif len(traj.steps) > 0:
-                        reward = f"{traj.steps[-1].reward:.1f}"
-                    reward_strs.append(f"{traj.name}: {reward}")
-                colorful_print(
-                    f"[{uid}] Rollout completed. Rewards: [{', '.join(reward_strs)}], Termination: {episode.termination_reason}",
-                    fg="green" if episode.is_correct else "yellow",
-                )
+                    # Display rewards
+                    reward_strs = []
+                    for traj in episode.trajectories:
+                        reward = "N/A"
+                        if traj.reward is not None:
+                            reward = f"{traj.reward:.1f}"
+                        elif len(traj.steps) > 0:
+                            reward = f"{traj.steps[-1].reward:.1f}"
+                        reward_strs.append(f"{traj.name}: {reward}")
+                    colorful_print(
+                        f"[{uid}] Rollout completed. Rewards: [{', '.join(reward_strs)}], Termination: {episode.termination_reason}",
+                        fg="green" if episode.is_correct else "yellow",
+                    )
 
-                return task_id, rollout_idx, result_idx, episode
+                    return task_id, rollout_idx, result_idx, episode
 
-            except Exception as e:
-                logger.error("[%s] Attempt %d/%d failed: %s", uid, retry_attempt, self.retry_limit, e)
-                if retry_attempt < self.retry_limit:
-                    continue
+                except Exception as e:
+                    logger.error("[%s] Attempt %d/%d failed: %r (type=%s)", uid, retry_attempt, self.retry_limit, e, type(e).__name__)
+                    if retry_attempt < self.retry_limit:
+                        continue
 
-                if self.raise_on_error:
-                    raise
+                    if self.raise_on_error:
+                        raise
 
-                # Return an error episode
-                return (
-                    task_id,
-                    rollout_idx,
-                    result_idx,
-                    Episode(
-                        id=uid,
-                        task=task,
-                        is_correct=False,
-                        termination_reason=TerminationReason.ERROR,
-                        metadata={"error": {"message": str(e)}},
-                    ),
-                )
+                    # Return an error episode
+                    return (
+                        task_id,
+                        rollout_idx,
+                        result_idx,
+                        Episode(
+                            id=uid,
+                            task=task,
+                            is_correct=False,
+                            termination_reason=TerminationReason.ERROR,
+                            metadata={"error": {"message": str(e)}},
+                        ),
+                    )
 
-        # Should not reach here, but satisfy type checker
-        raise RuntimeError(f"[{uid}] Exhausted all retries")
+            # Should not reach here, but satisfy type checker
+            raise RuntimeError(f"[{uid}] Exhausted all retries")
 
     async def _run_single(self, task: dict, uid: str, is_validation: bool = False) -> Episode:
-        """Run a single AgentFlow task: execute, evaluate, enrich."""
+        """Run a single AgentFlow task: execute, enrich, evaluate.
+
+        Order matters: enrichment runs *before* evaluation so that flows
+        which returned ``None`` (or a Trajectory with no steps) hand the
+        evaluator a Trajectory whose ``steps`` are populated from the
+        gateway traces. The evaluator is responsible for parsing whatever
+        it needs out of those steps.
+        """
         loop = asyncio.get_event_loop()
 
-        # 1. Create gateway session (run in executor to avoid blocking event loop)
-        await loop.run_in_executor(
-            self.executor,
-            self.gateway.create_session,
-            uid,
-        )
+        # 1. Create gateway session
+        await self.gateway.acreate_session(uid, is_validation=is_validation)
         session_url = self.gateway.get_session_url(uid)
 
         # 2. Build config
@@ -215,46 +237,52 @@ class AgentFlowEngine:
             base_url=session_url,
             model=self.model,
             session_uid=uid,
+            is_validation=is_validation,
         )
 
         # 3. Run agent flow (prefers arun if available, else run in executor)
         logger.debug("[%s] Starting agent flow at %s", uid, session_url)
-        task_obj = Task(data=task)
+        from pathlib import Path
+
+        task_obj = Task(
+            id=str(uid),
+            instruction=str(task.get("question", task.get("instruction", ""))),
+            metadata=task,
+            dataset_dir=Path("."),
+        )
         episode = await run_agent_flow(self.agent_flow, task_obj, config, executor=self.executor)
         logger.debug("[%s] Agent flow completed, %d trajectories", uid, len(episode.trajectories))
 
-        # 4. Evaluate
+        # 4. Retrieve traces from gateway and enrich episode with token data.
+        traces = await self.gateway.aget_traces(uid)
+        enriched = self._enrich_episode(episode, traces, uid, task)
+
+        # 5. Evaluate the enriched Episode
         eval_output: EvalOutput = await loop.run_in_executor(
             self.executor,
             self.evaluator.evaluate,
             task,
-            episode,
+            enriched,
         )
 
         # Apply reward to trajectories that don't already have one.
         # Evaluators for multi-trajectory flows (e.g. solver-judge) may set
         # per-trajectory rewards directly on the episode; those are preserved.
-        for traj in episode.trajectories:
+        for traj in enriched.trajectories:
             if traj.reward is None:
                 traj.reward = eval_output.reward
-        episode.is_correct = eval_output.is_correct
+        enriched.is_correct = eval_output.is_correct
 
-        # 5. Retrieve traces from gateway (run in executor to avoid blocking event loop)
-        traces = await loop.run_in_executor(
-            self.executor,
-            self.gateway.get_traces,
-            uid,
-        )
-
-        # 6. Enrich episode with token data
-        enriched = self._enrich_episode(episode, traces, uid, task)
+        # 6. Delete traces from gateway DB to prevent unbounded growth
+        await self.gateway.adelete_session(uid)
 
         # Attach eval metrics
         enriched.metrics.update(eval_output.metadata)
         for signal in eval_output.signals:
             enriched.metrics[signal.name] = signal.value
 
-        enriched.termination_reason = TerminationReason.ENV_DONE
+        if enriched.termination_reason is None:
+            enriched.termination_reason = TerminationReason.ENV_DONE
         return enriched
 
     def _enrich_episode(
@@ -275,10 +303,53 @@ class AgentFlowEngine:
         """
         if not traces:
             logger.warning("[%s] No traces found — returning episode without token data", uid)
-            return episode
+            # Coerce to the training Trajectory/Episode subclass so downstream
+            # pydantic validators (e.g. TrajectoryGroup.trajectories) accept
+            # instances produced by agents that imported from rllm.types.
+            return Episode(
+                id=episode.id,
+                task=episode.task,
+                is_correct=episode.is_correct,
+                termination_reason=episode.termination_reason,
+                trajectories=[t if isinstance(t, Trajectory) else Trajectory(**t.model_dump()) for t in episode.trajectories],
+                metrics=episode.metrics,
+                metadata=episode.metadata,
+                artifacts=episode.artifacts,
+            )
 
         # Convert all traces to training steps
         training_steps = [trace_record_to_step(t) for t in traces]
+
+        # Bad traces (missing or empty token_ids) silently corrupt loss math and
+        # shrink GRPO groups; raise on real mismatches so retries can reissue.
+        n_agent_steps = sum(len(t.steps) for t in episode.trajectories)
+        agent_populates_steps = any(len(t.steps) > 0 for t in episode.trajectories)
+
+        # Common case: vLLM returns an empty body on the final call (e.g. prompt
+        # hit max_model_len, or weight-sync disconnect). The agent breaks without
+        # recording a Step, leaving N+1 traces vs N agent_steps with the trailing
+        # one malformed. Drop the trailing trace rather than burn the whole
+        # rollout — at high MAX_TURNS the failure rate would exhaust retries.
+        if agent_populates_steps and len(training_steps) > n_agent_steps:
+            extra = training_steps[n_agent_steps:]
+            extras_all_malformed = all(not s.model_output.prompt_ids or not s.model_output.completion_ids for s in extra)
+            if extras_all_malformed:
+                logger.warning(
+                    "[%s] dropping %d trailing malformed trace(s); keeping %d aligned with agent_steps",
+                    uid,
+                    len(extra),
+                    n_agent_steps,
+                )
+                training_steps = training_steps[:n_agent_steps]
+
+        empty_prompt = sum(1 for s in training_steps if not s.model_output.prompt_ids)
+        empty_compl = sum(1 for s in training_steps if not s.model_output.completion_ids)
+        # Only enforce step-count parity when the agent actually populates steps.
+        # Trajectories with no agent steps absorb remaining traces wholesale
+        # (see branch below), and trajectories with steps consume traces 1:1.
+        traces_short = agent_populates_steps and len(training_steps) < n_agent_steps
+        if traces_short or empty_prompt or empty_compl:
+            raise EnrichMismatchError(f"[{uid}] enrich mismatch: traces={len(training_steps)} agent_steps={n_agent_steps} empty_prompt_ids={empty_prompt} empty_completion_ids={empty_compl}")
 
         # Build enriched trajectories
         enriched_trajectories: list[Trajectory] = []
@@ -288,17 +359,15 @@ class AgentFlowEngine:
             traj_steps: list[Step] = []
 
             if traj.steps:
-                # Match agent steps to traces positionally
+                # Match agent steps to traces positionally. The validation above
+                # guarantees trace_idx < len(training_steps) for every agent_step
+                # when agent_populates_steps is True.
                 for agent_step in traj.steps:
-                    if trace_idx < len(training_steps):
-                        step = training_steps[trace_idx]
-                        # Preserve reward and done from agent's step
-                        step.reward = agent_step.reward
-                        step.done = agent_step.done
-                        trace_idx += 1
-                    else:
-                        # No more traces — keep original step
-                        step = agent_step
+                    step = training_steps[trace_idx]
+                    # Preserve reward and done from agent's step
+                    step.reward = agent_step.reward
+                    step.done = agent_step.done
+                    trace_idx += 1
                     traj_steps.append(step)
             else:
                 # No agent steps — assign all remaining traces to this trajectory
@@ -329,19 +398,9 @@ class AgentFlowEngine:
             ]
 
         # Compute metrics
-        all_response_lens = [len(s.response_ids) for t in enriched_trajectories for s in t.steps]
-        all_prompt_lens = [len(s.prompt_ids) for t in enriched_trajectories for s in t.steps]
-        metrics = {
-            "empty": int(len(traces) == 0),
-            "num_trajectories": len(enriched_trajectories),
-            "steps_collected": len(traces),
-            "steps_used": sum(len(t.steps) for t in enriched_trajectories),
-            "mean_response_len": (sum(all_response_lens) / len(all_response_lens) if all_response_lens else 0),
-            "max_response_len": max(all_response_lens, default=0),
-            "min_response_len": min(all_response_lens, default=0),
-            "max_prompt_len": max(all_prompt_lens, default=0),
-            "min_prompt_len": min(all_prompt_lens, default=0),
-        }
+        metrics = compute_step_metrics(enriched_trajectories)
+        metrics["empty"] = int(len(traces) == 0)
+        metrics["steps_collected"] = len(traces)
         metrics.update(episode.metrics)
 
         return Episode(

@@ -4,7 +4,7 @@ from typing import Any
 
 import click
 
-from rllm.agents.agent import Trajectory, TrajectoryGroup
+from rllm.types import Trajectory, TrajectoryGroup
 
 
 @dataclass
@@ -22,6 +22,40 @@ class VisualizationConfig:
 
     success_style: dict[str, Any] = field(default_factory=lambda: {"fg": "green", "bold": True})
     failure_style: dict[str, Any] = field(default_factory=lambda: {"fg": "red", "bold": True})
+
+
+def print_metrics_table(metrics: dict, step: int, title: str | None = None) -> None:
+    """Print metrics as a formatted Rich table with fallback to plain text."""
+    try:
+        from rich.console import Console
+        from rich.table import Table
+
+        table = Table(title=title or f"Step {step}", show_header=True, header_style="bold magenta")
+        table.add_column("Metric", style="cyan", no_wrap=False)
+        table.add_column("Value", justify="right", style="green")
+
+        for key, value in sorted(metrics.items()):
+            if isinstance(value, float):
+                value_str = f"{value:.6f}" if abs(value) < 1000 else f"{value:.2f}"
+            elif isinstance(value, int):
+                value_str = str(value)
+            else:
+                value_str = str(value)
+            table.add_row(key, value_str)
+
+        Console().print(table)
+    except ImportError:
+        print(f"\n{title or f'Step {step}'}")
+        print("=" * 60)
+        for key, value in sorted(metrics.items()):
+            if isinstance(value, float):
+                value_str = f"{value:.6f}" if abs(value) < 1000 else f"{value:.2f}"
+            elif isinstance(value, int):
+                value_str = str(value)
+            else:
+                value_str = str(value)
+            print(f"{key:40s} {value_str:>15s}")
+        print("=" * 60)
 
 
 def colorful_print(string: str, *args, **kwargs) -> None:
@@ -160,6 +194,10 @@ def visualize_trajectory_last_steps(
 
         print(_format_token(prompt_str, config.masked_token_style))
         print("----------------")
+
+        if len(response_ids) == 0:
+            print(_format_token("<empty response>", config.masked_token_style))
+            continue
 
         # for response string, we simply highlight the last token
         response_str_prev = abbreviate_string(tokenizer.decode(response_ids[:-1]))

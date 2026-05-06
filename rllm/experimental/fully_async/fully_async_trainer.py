@@ -21,7 +21,7 @@ import ray
 from omegaconf import OmegaConf
 from tqdm import tqdm
 from verl import DataProto
-from verl.experimental.fully_async_policy.ray_trainer import FullyAsyncRayPPOTrainer
+from verl.experimental.separation.ray_trainer import SeparateRayPPOTrainer
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import agg_loss
@@ -37,10 +37,11 @@ from rllm.experimental.fully_async.utils import (
     compute_grpo_outcome_advantage,
     reduce_metrics_with_flatten,
 )
+from rllm.experimental.verl.metrics import calculate_debug_metrics_compat
 
 
 @ray.remote(num_cpus=10)
-class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
+class FullyAsyncTrainer(SeparateRayPPOTrainer):
     """
     A fully asynchronous PPO trainer that obtains samples from a MessageQueue for training.
     Based on an improved implementation of OneStepOffRayTrainer
@@ -274,7 +275,15 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
 
         if self.use_critic:
             critic_local_path = os.path.join(local_global_step_folder, str(Role.Critic))
-            critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.current_param_version}", str(Role.Critic))
+            critic_remote_path = (
+                None
+                if self.config.trainer.default_hdfs_dir is None
+                else os.path.join(
+                    self.config.trainer.default_hdfs_dir,
+                    f"global_step_{self.current_param_version}",
+                    str(Role.Critic),
+                )
+            )
             self.critic_wg.save_checkpoint(
                 critic_local_path,
                 critic_remote_path,
@@ -532,9 +541,7 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
                 batch = batch.union(old_log_prob)
                 if "rollout_log_probs" in batch.batch.keys():
                     # TODO: we may want to add diff of probs too.
-                    from verl.utils.debug.metrics import calculate_debug_metrics
-
-                    metrics.update(calculate_debug_metrics(batch))
+                    metrics.update(calculate_debug_metrics_compat(batch))
                 return batch
 
             async_training = self.config.get("async_training", None)

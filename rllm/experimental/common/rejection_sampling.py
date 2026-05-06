@@ -7,8 +7,8 @@ tracking episode-level correctness metrics while filtering based on reward varia
 
 from dataclasses import dataclass, field
 
-from rllm.agents.agent import Episode, TrajectoryGroup
 from rllm.experimental.common.config import RejectionSamplingConfig
+from rllm.types import Episode, TrajectoryGroup
 
 
 @dataclass
@@ -157,7 +157,12 @@ def filter_episodes(
     return filtered_episodes
 
 
-def apply_rejection_sampling_and_filtering(episodes: list[Episode], groups: list[TrajectoryGroup], config: RejectionSamplingConfig, state: RejectionSamplingState) -> tuple[list[TrajectoryGroup], list[Episode], dict]:
+def apply_rejection_sampling_and_filtering(
+    episodes: list[Episode],
+    groups: list[TrajectoryGroup],
+    config: RejectionSamplingConfig,
+    state: RejectionSamplingState,
+) -> tuple[list[TrajectoryGroup], list[Episode], dict]:
     """
     Apply rejection sampling to trajectory groups and episodes.
 

@@ -10,13 +10,14 @@ from typing import TYPE_CHECKING, Any
 
 from tqdm import tqdm
 
-from rllm.agents.agent import Episode
 from rllm.experimental.rollout import RolloutEngine
-from rllm.utils import colorful_print
+from rllm.types import Episode
+from rllm.workflows.store import Store
 from rllm.workflows.workflow import TerminationReason, Workflow
 
 # Avoid hard dependency on verl at import time; only for typing
 if TYPE_CHECKING:
+    from omegaconf import DictConfig
     from verl import DataProto
 
     from rllm.utils.episode_logger import EpisodeLogger
@@ -30,12 +31,13 @@ class UnifiedWorkflowEngine:
         workflow_cls: type[Workflow],
         workflow_args: dict,
         rollout_engine: RolloutEngine,
-        config=None,
+        config: DictConfig | None = None,
         n_parallel_tasks: int = 128,
         retry_limit: int = 3,
         raise_on_error: bool = True,
         episode_logger: EpisodeLogger | None = None,
         post_execute_hook: Callable[[], Coroutine[Any, Any, None]] | None = None,
+        store: Store | None = None,
         **kwargs,
     ):
         """
@@ -53,10 +55,12 @@ class UnifiedWorkflowEngine:
             post_execute_hook: Optional async callback invoked after all tasks
                 in a batch complete but before results are returned.  Useful for
                 batch-level trace flushing in SDK async-tracer mode.
+            store: Optional cross-episode store shared across all workflow instances.
             **kwargs: Additional keyword arguments.
         """
         self.workflow_cls = workflow_cls
         self.workflow_args = workflow_args or {}
+        self.store = store
 
         self.rollout_engine = rollout_engine
         self.config = config  # if training
@@ -100,15 +104,18 @@ class UnifiedWorkflowEngine:
         assert self.executor is not None, "executor is not initialized"
         if self.workflow_queue is not None:
             return
+        logger.info(f"[WorkflowEngine] Initializing pool with {self.n_parallel_tasks} workflows")
         self.workflow_queue = asyncio.Queue(maxsize=self.n_parallel_tasks)
         for i in range(self.n_parallel_tasks):
             workflow = self.workflow_cls(
                 rollout_engine=self.rollout_engine,
                 executor=self.executor,
+                store=self.store,
                 **self.workflow_args,
             )
             assert workflow.is_multithread_safe(), "Workflows must contain only thread-save environments"
             self.workflow_queue.put_nowait(workflow)
+        logger.info(f"[WorkflowEngine] Pool initialized. Queue size: {self.workflow_queue.qsize()}")
 
     async def process_task_with_retry(self, task: dict, task_id: str, rollout_idx: int, result_idx: int, **kwargs) -> tuple[str, int, int, Episode]:
         """Process a single task rollout with retry logic based on termination reasons.
@@ -127,10 +134,12 @@ class UnifiedWorkflowEngine:
             Exception: If task fails permanently after retry_limit attempts and raise_on_error is True.
         """
         assert self.workflow_queue is not None, "workflow_queue is not initialized"
+        logger.debug(f"[WorkflowEngine] Waiting for workflow from queue. Available: {self.workflow_queue.qsize()}")
         workflow = await self.workflow_queue.get()
         try:
             for retry_attempt in range(1, self.retry_limit + 1):
                 uid = f"{task_id}:{rollout_idx}"
+                logger.debug(f"[WorkflowEngine] [{uid}] Starting attempt {retry_attempt}/{self.retry_limit}")
                 workflow.reset(task=task, uid=uid)
                 episode = await workflow.run_with_termination_handling(task=task, uid=uid, **kwargs)
 
@@ -147,24 +156,21 @@ class UnifiedWorkflowEngine:
                     elif len(traj.steps) > 0:
                         reward = f"{traj.steps[-1].reward:.1f}"
                     reward_strs.append(f"{traj.name}: {reward}")
-                colorful_print(
-                    f"[{uid}] Rollout completed. Rewards: [{', '.join(reward_strs)}], Termination: {episode.termination_reason}",
-                    fg="green" if episode.is_correct else "yellow",
-                )
+                logger.debug(f"[{uid}] Rollout completed. Rewards: [{', '.join(reward_strs)}], Termination: {episode.termination_reason}")
 
                 if episode.termination_reason != TerminationReason.ERROR:
                     return task_id, rollout_idx, result_idx, episode
 
                 error_tb = episode.info.get("error", {}).get("traceback")
                 if error_tb:
-                    print(error_tb)
+                    logger.error(f"[WorkflowEngine] [{uid}] Error on attempt {retry_attempt}/{self.retry_limit}:\n{error_tb}")
 
                 if retry_attempt < self.retry_limit:
-                    print(f"[{uid}] Rollout failed on attempt {retry_attempt}/{self.retry_limit}, retrying...")
+                    logger.warning(f"[WorkflowEngine] [{uid}] Rollout failed on attempt {retry_attempt}/{self.retry_limit}, retrying...")
                     continue
 
             if not self.raise_on_error:
-                print(f"[{uid}] Rollout failed permanently after {self.retry_limit} attempts.")
+                logger.error(f"[WorkflowEngine] [{uid}] Rollout failed permanently after {self.retry_limit} attempts.")
             else:
                 raise Exception(f"[{uid}] Rollout failed permanently after {self.retry_limit} attempts.")
 
@@ -172,6 +178,7 @@ class UnifiedWorkflowEngine:
 
         finally:
             await self.workflow_queue.put(workflow)
+            logger.debug(f"[WorkflowEngine] Returned workflow to queue. Available: {self.workflow_queue.qsize()}")
 
     async def execute_tasks(self, tasks: list[dict], task_ids: list[str] | None = None, is_validation: bool = False, **kwargs) -> list[Episode]:
         """Run asynchronous workflow execution with retry logic for multiple tasks.
@@ -244,11 +251,6 @@ class UnifiedWorkflowEngine:
         Returns:
             list[Episode]: List of completed episodes.
         """
-        from rllm.experimental.rollout import VerlEngine
-
-        assert isinstance(self.rollout_engine, VerlEngine), "Rollout engine must be a VerlEngine to invoke execute_tasks_verl"
-        await self.rollout_engine.wake_up()
-
         tasks = batch.non_tensor_batch["extra_info"].tolist()
         task_ids = batch.non_tensor_batch["task_ids"].tolist()
         episodes = await self.execute_tasks(tasks, task_ids, is_validation=is_validation, **kwargs)
@@ -257,8 +259,6 @@ class UnifiedWorkflowEngine:
             data_sources = batch.non_tensor_batch["data_source"].tolist()
             for episode, data_source in zip(episodes, data_sources, strict=True):
                 episode.info["data_source"] = data_source
-
-        await self.rollout_engine.sleep()
         return episodes
 
     def shutdown(self):
