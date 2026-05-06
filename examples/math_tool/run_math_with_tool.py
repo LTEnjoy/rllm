@@ -44,7 +44,7 @@ if __name__ == "__main__":
 
     sampling_params = {
         "temperature": 0,
-        "model": "MiniMax-M2.7"
+        "model": "None"
     }
 
     engine = AgentExecutionEngine(
@@ -54,10 +54,10 @@ if __name__ == "__main__":
         env_args=env_args,
         engine_name="openai",
         rollout_engine_args={
-            "base_url": "https://api.minimaxi.com/v1/chat",
-            "api_key": "sk-cp-6GAU5uz5mgdHd2eFAVj6GZYim6MdZQnROkO--M1h2a8uWAeL5vqxbLSoXYakkJzIsN0iuPy-iKpxd7JEFazYa2V8K0iez3B-ubZtgkf-C6nwGrdokCealrU"
-            # "base_url": "http://localhost:30000/v1",
-            # "api_key": "None"
+            # "base_url": "https://api.minimaxi.com/v1/chat",
+            # "api_key": "sk-cp-6GAU5uz5mgdHd2eFAVj6GZYim6MdZQnROkO--M1h2a8uWAeL5vqxbLSoXYakkJzIsN0iuPy-iKpxd7JEFazYa2V8K0iez3B-ubZtgkf-C6nwGrdokCealrU"
+            "base_url": "http://localhost:30000/v1",
+            "api_key": "None"
         },
         tokenizer=tokenizer,
         sampling_params=sampling_params,
@@ -67,7 +67,7 @@ if __name__ == "__main__":
     )
 
     test_dataset = DatasetRegistry.load_dataset("aime2024", "test")
-    test_dataset.data = test_dataset.data[:1]
+    test_dataset.data = test_dataset.data[28:29]
     print(len(test_dataset))
 
     if test_dataset is None:
@@ -80,7 +80,8 @@ if __name__ == "__main__":
     results = asyncio.run(engine.execute_tasks(tasks))
     compute_pass_at_k(results)
 
-    if results:
-        traj_dict = results[0].to_dict()
-        print(json.dumps(traj_dict, indent=2, ensure_ascii=False))
+    # if results:
+    #     traj_dict = results[0].to_dict()
+    #     print(json.dumps(traj_dict["steps"][0]["chat_completions"], indent=4))
+        # print(json.dumps(traj_dict, indent=2, ensure_ascii=False))
 
