@@ -11,7 +11,7 @@ RLLM_DIR=$(python3 -c "import rllm; import os; print(os.path.dirname(os.path.dir
 
 python3 -m examples.math_tool.train_math_with_tool \
     algorithm.adv_estimator=grpo \
-    data.train_batch_size=32 \
+    data.train_batch_size=16 \
     data.val_batch_size=500 \
     data.max_prompt_length=2048 \
     data.max_response_length=8192 \
@@ -20,7 +20,7 @@ python3 -m examples.math_tool.train_math_with_tool \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.loss_agg_mode=seq-mean-token-mean \
-    actor_rollout_ref.actor.ppo_mini_batch_size=32 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=16 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=24000 \
     actor_rollout_ref.actor.use_kl_loss=False \
@@ -36,8 +36,8 @@ python3 -m examples.math_tool.train_math_with_tool \
     actor_rollout_ref.rollout.mode="async" \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.temperature=0.6 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
-    actor_rollout_ref.rollout.n=8 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
+    actor_rollout_ref.rollout.n=4 \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
     actor_rollout_ref.rollout.val_kwargs.temperature=0.6 \
     actor_rollout_ref.rollout.val_kwargs.top_p=0.95 \
@@ -59,4 +59,6 @@ python3 -m examples.math_tool.train_math_with_tool \
     trainer.default_hdfs_dir=null \
     rllm.agent.max_steps=2 \
     rllm.stepwise_advantage.enable=False \
-    trainer.total_epochs=100
+    trainer.total_epochs=100 \
+    actor_rollout_ref.actor.fsdp_config.dtype="float16" \
+    actor_rollout_ref.rollout.dtype="float16"
