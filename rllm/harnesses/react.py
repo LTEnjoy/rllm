@@ -40,14 +40,17 @@ class ReActHarness:
 
         from rllm.eval.reward_fns._resolver import get_verifier_system_prompt
 
-        client = OpenAI(base_url=config.base_url, api_key="EMPTY")
+        client = OpenAI(
+            base_url=config.base_url,
+            api_key=getattr(config, "api_key", "EMPTY")
+        )
 
         # Compose system prompt: base + verifier-specific output-format hint
         system_msg = self.system_prompt
         verifier_hint = get_verifier_system_prompt(task)
         if verifier_hint:
             system_msg = f"{system_msg}\n\n{verifier_hint}"
-
+    
         instruction = task.instruction
         # Multimodal: pass through the content blocks as-is
         user_content = instruction if isinstance(instruction, list) else str(instruction)

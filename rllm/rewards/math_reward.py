@@ -66,7 +66,7 @@ class RewardMathFn:
         # Convert single answer to list for uniform processing
         if isinstance(ground_truths, str | float | int):
             ground_truths = [ground_truths]
-
+        
         # Process each ground truth
         processed_ground_truths = []
         for truth in ground_truths:

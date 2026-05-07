@@ -15,10 +15,10 @@ uv pip install -e .[all]       # All optional dependencies
 
 ### Linting & Formatting
 ```bash
-pre-commit run --all-files     # Run ruff lint + ruff-format
+pre-commit run --all-files     # Run ruff lint (includes formatting)
 ```
 
-Ruff config (`pyproject.toml`): selects E, F, UP, B, I, G rules; ignores F405, F403, E731, B007, UP032, G004, E712. Line length is set to 5000 (TODO: reduce).
+Ruff config (`pyproject.toml`): selects E, F, UP, B, I, G rules; ignores F405, F403, E731, B007, UP032, G004, E712. Line length is 200.
 
 ### Testing
 ```bash
@@ -70,7 +70,7 @@ rLLM is a framework for post-training language agents via reinforcement learning
 ### Training System (`rllm/trainer/`)
 
 **`AgentTrainer`** is the high-level training API. It delegates to a backend:
-- `verl` (default): PPO with Ray + vLLM. Requires `vllm>=0.10.2,<=0.11.0`.
+- `verl`: PPO with Ray + vLLM. Requires `verl==0.7.1`, `vllm==0.17.0`.
 - `tinker`: Lightweight RL, Python 3.11+ only.
 - `fireworks`: Cloud deployment backend.
 
