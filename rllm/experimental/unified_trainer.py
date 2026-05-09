@@ -237,6 +237,21 @@ class UnifiedTrainer:
         if hasattr(self.backend, "tokenizer"):
             self.tokenizer = self.backend.tokenizer
 
+        # ================================================================
+        # 调试信息：打印各组件初始化结果
+        # ================================================================
+        print("\n" + "=" * 70)
+        print("【UnifiedTrainer】初始化完成")
+        print("=" * 70)
+        print(f"  Backend 类型: {type(self.backend).__name__}")
+        print(f"  WorkflowEngine 类型: {type(self.agent_workflow_engine).__name__}")
+        if self._gateway is not None:
+            print(f"  Gateway 模式: {self._gateway.mode}")
+            print(f"  Gateway URL: {self._gateway.gateway_url}")
+        print(f"  并发任务数 (n_parallel_tasks): {self.rllm_config.workflow.n_parallel_tasks}")
+        print(f"  tokenizer 是否存在: {self.tokenizer is not None}")
+        print("=" * 70 + "\n")
+
     def _validate_and_setup_configs(self):
         """Validate and setup common configs."""
         # validate common, backend-agnostic configs
@@ -356,6 +371,10 @@ class UnifiedTrainer:
 
             for batch in train_dataloader:
                 trainer_state.reset_batch()
+                # import time
+                # print(batch)
+                # print(1111)
+                # time.sleep(3600)
 
                 await self.backend.on_batch_start(trainer_state)
                 with simple_timer("step", trainer_state.timing_dict):
@@ -391,11 +410,23 @@ class UnifiedTrainer:
         """Train a batch (async implementation)."""
         self.agent_workflow_engine.set_training_step(trainer_state.global_step, mode="train", epoch=trainer_state.epoch)
 
-        # TODO(kylemontgomery1): episode generation should be backend-agnostic
-        # stage 1: generate episodes (async) and collect metrics (sync)
+        # ================================================================
+        # Stage 1: 生成 episodes
+        # ================================================================
         trainer_state.episodes = await self.backend.generate_episodes(batch, agent_workflow_engine=self.agent_workflow_engine, is_validation=False)
         if not trainer_state.has_episodes:
             return
+
+        # 打印 Stage 1 结果
+        n_episodes = len(trainer_state.episodes)
+        total_trajs = sum(len(ep.trajectories) for ep in trainer_state.episodes)
+        total_steps = sum(len(traj.steps) for ep in trainer_state.episodes for traj in ep.trajectories)
+        print(f"\n{'='*60}")
+        print(f"【Step {trainer_state.global_step}】Stage 1 - 生成 Episodes")
+        print(f"  Episode 总数: {n_episodes}")
+        print(f"  Trajectory 总数: {total_trajs} (平均 {total_trajs/n_episodes:.1f} per episode)")
+        print(f"  Step 总数: {total_steps} (平均 {total_steps/n_episodes:.1f} per episode)")
+        print(f"{'='*60}\n")
 
         workflow_metrics, termination_counts = self._collect_workflow_metrics_from_episodes(trainer_state.episodes)
         for key, value in workflow_metrics.items():
@@ -405,12 +436,21 @@ class UnifiedTrainer:
         for r in TerminationReason:
             trainer_state.metrics[f"batch/termination_reason/{r.value}"] = termination_counts[r.value] / total_counts
 
-        # stage 2: transform episodes to trajectory groups (sync)
+        # ================================================================
+        # Stage 2: 转成 TrajectoryGroups
+        # ================================================================
         trajectory_groups, transform_metrics = transform_episodes_to_trajectory_groups(trainer_state.episodes, self.transform_config, self.cf_config, traj_grouping_hook=self.traj_grouping_hook)
         trainer_state.trajectory_groups = trajectory_groups
         trainer_state.metrics.update(transform_metrics)
 
-        # stage 3: apply rejection sampling (sync)
+        print(f"{'='*60}")
+        print(f"【Step {trainer_state.global_step}】Stage 2 - 转成 TrajectoryGroups")
+        print(f"  TrajectoryGroup 数量: {len(trajectory_groups)}")
+        print(f"{'='*60}\n")
+
+        # ================================================================
+        # Stage 3: Rejection Sampling 过滤
+        # ================================================================
         filtered_groups, filtered_episodes, rs_metrics = apply_rejection_sampling_and_filtering(
             trainer_state.episodes,
             trainer_state.trajectory_groups,
@@ -420,23 +460,72 @@ class UnifiedTrainer:
         trainer_state.metrics.update(rs_metrics)
         trainer_state.trajectory_groups = filtered_groups
         trainer_state.episodes = filtered_episodes
+
+        print(f"{'='*60}")
+        print(f"【Step {trainer_state.global_step}】Stage 3 - Rejection Sampling")
+        print(f"  过滤前 Episode 数: {n_episodes}")
+        print(f"  过滤后 Episode 数: {len(filtered_episodes)}")
+        print(f"  过滤前 TrajectoryGroup 数: {len(trajectory_groups)}")
+        print(f"  过滤后 TrajectoryGroup 数: {len(filtered_groups)}")
+        print(f"  Rejection Sampling 指标: { {k: float(v) for k, v in rs_metrics.items()} }")
+        print(f"{'='*60}\n")
+
         if not trainer_state.has_trajectory_groups:
             return
 
-        # stage 4: transform rllm-native data structures to backend-specific format (sync)
+        # ================================================================
+        # Stage 4: 转成后端格式 (verl DataProto)
+        # ================================================================
         backend_batch = self.backend.transform_to_backend_batch(trainer_state)
         trainer_state.backend_batch = backend_batch
 
-        # stage 5: process backend batch (async) - compute log probs, critic values, etc.
+        batch_shape = backend_batch.batch.get("prompts", None)
+        resp_shape = backend_batch.batch.get("responses", None)
+        print(f"{'='*60}")
+        print(f"【Step {trainer_state.global_step}】Stage 4 - 转成 Backend Batch")
+        print(f"  Backend 类型: {type(self.backend).__name__}")
+        print(f"  DataProto batch 形状 - prompts: {batch_shape.shape if batch_shape is not None else None}")
+        print(f"  DataProto batch 形状 - responses: {resp_shape.shape if resp_shape is not None else None}")
+        print(f"{'='*60}\n")
+
+        # ================================================================
+        # Stage 5: 处理 backend batch (计算 log probs)
+        # ================================================================
         await self.backend.process_backend_batch(trainer_state)
         assert trainer_state.has_backend_batch, "Backend batch is not transformed or processed successfully"
 
-        # TODO(kylemontgomery1): compute advantages should be backend-agnostic
-        # stage 6: compute advantages (async)
+        # 从处理后的 batch 中提取 shape 信息
+        batch_after = trainer_state.backend_batch
+        lp_shape = batch_after.batch.get("old_log_probs", None) if hasattr(batch_after, "batch") else None
+        print(f"{'='*60}")
+        print(f"【Step {trainer_state.global_step}】Stage 5 - Process Backend Batch (计算 log probs)")
+        print(f"  old_log_probs 形状: {lp_shape.shape if lp_shape is not None else None}")
+        print(f"{'='*60}\n")
+
+        # ================================================================
+        # Stage 6: 计算 Advantage
+        # ================================================================
         await self.backend.compute_advantages(trainer_state, self.algorithm_config)
 
-        # stage 7: update policy (async)
+        adv_shape = None
+        if hasattr(trainer_state.backend_batch, "batch"):
+            adv_shape = trainer_state.backend_batch.batch.get("advantages", None)
+        print(f"{'='*60}")
+        print(f"【Step {trainer_state.global_step}】Stage 6 - Compute Advantages")
+        print(f"  advantage 形状: {adv_shape.shape if adv_shape is not None else None}")
+        print(f"{'='*60}\n")
+
+        # ================================================================
+        # Stage 7: 策略更新
+        # ================================================================
         await self.backend.update_policy(trainer_state)
+
+        print(f"{'='*60}")
+        print(f"【Step {trainer_state.global_step}】Stage 7 - Policy Update 完成")
+        print(f"{'='*60}\n")
+        
+        import time
+        time.sleep(3600)
 
         # stage 8: cleanup, logging, visualization, etc. (sync)
         if self.tokenizer is not None:
@@ -729,11 +818,17 @@ class UnifiedTrainer:
 
             data_sources = [episode.info.get("data_source", "unknown") for episode in val_episodes]
             data_source_lst.extend(data_sources)
-
+            
             for episode, data_source in zip(val_episodes, data_sources, strict=True):
+                
                 for key, value in episode.metrics.items():
-                    workflow_metrics_by_source[data_source][key].append(float(value))
-
+                    try:
+                        workflow_metrics_by_source[data_source][key].append(float(value))
+                    
+                    except Exception as e:
+                        print(e)
+                        continue
+                    
             for key, value in reward_metrics.items():
                 val_metrics[f"val/{key}"].append(value)
 

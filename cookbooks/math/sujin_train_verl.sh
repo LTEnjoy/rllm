@@ -14,8 +14,14 @@ MODEL_PATH=/sujin/Models/Qwen/Qwen3-0.6B
 
 python -u train.py \
     rllm/backend=verl \
+    algorithm.adv_estimator=grpo \
+    +algorithm.grpo.baseline=mean \
+    algorithm.norm_adv_by_std_in_grpo=true \
+    rllm.algorithm.use_rllm=true \
+    data.train_batch_size=2 \
     +model.name=$MODEL_PATH \
     actor_rollout_ref.model.path=$MODEL_PATH \
+    actor_rollout_ref.actor.ppo_mini_batch_size=1 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.rollout.name=vllm \
@@ -30,4 +36,5 @@ python -u train.py \
     trainer.n_gpus_per_node=1 \
     trainer.nnodes=1 \
     rllm.gateway.port=9091 \
+    trainer.logger=['console'] \
     "$@"

@@ -8,10 +8,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 uv venv --python 3.11
 source .venv/bin/activate
-uv pip install -e .[verl]      # Verl backend (default)
-uv pip install -e .[tinker]    # Tinker backend (Python 3.11+ only)
+uv pip install -e .[verl]      # Verl backend (GPU, distributed training)
+uv pip install -e .[tinker]    # Tinker backend (single-machine, CPU-friendly)
 uv pip install -e .[all]       # All optional dependencies
 ```
+
+Python >= 3.11 required. verl and tinker backends are mutually exclusive; tinker is for single-machine setups, verl for multi-GPU.
 
 ### Linting & Formatting
 ```bash
@@ -69,12 +71,24 @@ rLLM is a framework for post-training language agents via reinforcement learning
 
 ### Training System (`rllm/trainer/`)
 
-**`AgentTrainer`** is the high-level training API. It delegates to a backend:
-- `verl`: PPO with Ray + vLLM. Requires `verl==0.7.1`, `vllm==0.17.0`.
-- `tinker`: Lightweight RL, Python 3.11+ only.
-- `fireworks`: Cloud deployment backend.
+**High-level API** (recommended): Use `AgentTrainer` from `rllm.experimental.unified_trainer` with the `@rllm.rollout` and `@rllm.evaluator` decorators:
 
-**`rllm/experimental/unified_trainer.py`** — Backend-agnostic async trainer that unifies all backends. Handles episode collection, advantage computation, rejection sampling, compact filtering, distillation.
+```python
+from rllm.experimental.unified_trainer import AgentTrainer
+
+trainer = AgentTrainer(
+    backend="tinker",  # or "verl" for GPU
+    agent_flow=solve,  # @rllm.rollout decorated function
+    evaluator=score,   # @rllm.evaluator decorated function
+    config=config,
+    train_dataset=dataset,
+)
+trainer.train()
+```
+
+**Backends**: `verl` (Ray + vLLM, multi-GPU), `tinker` (single-machine, Python 3.11+), `fireworks` (cloud).
+
+**`rllm/experimental/unified_trainer.py`** — Backend-agnostic async trainer. Handles episode collection, advantage computation, rejection sampling, compact filtering, distillation.
 
 Configuration is via Hydra DictConfig. Base configs live in `rllm/trainer/config/` (e.g., `agent_ppo_trainer.yaml`). Key config namespaces: `rllm.agent.*`, `rllm.env.*`, `rllm.workflow.*`, `data.*`, `model.*`, `trainer.*`, `actor_rollout_ref.*`.
 
@@ -117,6 +131,7 @@ Central `ToolRegistry` with built-in: `PythonInterpreter`, `GoogleSearchTool`, `
 - `rllm/patches/` contains monkey patches for third-party libraries (apply carefully).
 - Workflows should extend `Workflow` and implement `async run()`. Use `postprocess_episode()` for consistent error/termination handling.
 - Pydantic `BaseModel` constructors must use keyword arguments.
+- **Prefer the high-level `@rllm.rollout` / `@rllm.evaluator` + `AgentTrainer` API** for training workflows. The BaseAgent/BaseEnv/Workflow abstractions are lower-level building blocks.
 
 ## Additional CLI Commands
 ```bash
@@ -129,8 +144,12 @@ rllm login               # Login to model providers
 ## Directory Structure
 
 - **`agenthub/`** — Framework-specific agent implementations (SmolAgent, Strands, LangGraph, terminal, SWE agents). Install via `[all]` or individually.
-- **`rllm-model-gateway/`** — LiteLLM-based proxy that captures token IDs and logprobs for training. Acts as the inference layer between agents and model providers.
+- **`rllm-model-gateway/`** — LiteLLM-based proxy that captures token IDs and logprobs for training. Acts as the inference layer between agents and model providers. Used automatically when training — agents point to the gateway URL.
 - **`rllm/experimental/fully_async/`** — Fully async PPO training with decoupled rollout and training via message queue. Uses SGLang backend for rollout generation.
+
+## Datasets & Benchmarks
+
+The CLI ships with 50+ benchmarks defined in `rllm/registry/datasets.json`. Categories: `math`, `mcq`, `code`, `vlm`, `search`, `agentic`, `qa`, `translation`, `instruction_following`. Run `rllm eval <dataset>` to evaluate, `rllm train <dataset>` to train.
 
 ## RL Algorithms
 
