@@ -326,7 +326,7 @@ class UnifiedTrainer:
 
         if hasattr(self, "_gateway") and self._gateway is not None:
             self._gateway.start(self.backend.rollout_engine)
-
+            
         if self.rllm_config.trainer.get("val_before_train", True):
             await self._validate_async(trainer_state)
             if self.rllm_config.trainer.get("val_only", False):
@@ -351,6 +351,11 @@ class UnifiedTrainer:
     async def _fit_on_policy(self, trainer_state: TrainerState) -> None:
         """Synchronous training loop (the most vanilla, standalone case that does not support minibatching or off-policy training)."""
         # TODO(kylemontgomery1): dataloader should be backend-agnostic
+        # import time
+        # print(trainer_state)
+        # print(123456)
+        # time.sleep(3600)
+        
         train_dataloader: Iterable = self.backend.get_dataloader(self.train_dataset, trainer_state)
         break_via_total_batches = False  # used to break the training loop via the `total_batches` parameter
         use_total_batches = self.rllm_config.trainer.get("total_batches") is not None and self.rllm_config.trainer.total_batches > 0
@@ -368,11 +373,11 @@ class UnifiedTrainer:
             pprint(f"epoch {epoch}, step {trainer_state.global_step} started")
             trainer_state.epoch = epoch
             await self.backend.on_epoch_start(trainer_state)
-
+            
             for batch in train_dataloader:
                 trainer_state.reset_batch()
                 # import time
-                # print(batch)
+                # print(len(batch))
                 # print(1111)
                 # time.sleep(3600)
 
@@ -524,8 +529,8 @@ class UnifiedTrainer:
         print(f"【Step {trainer_state.global_step}】Stage 7 - Policy Update 完成")
         print(f"{'='*60}\n")
         
-        import time
-        time.sleep(3600)
+        # import time
+        # time.sleep(3600)
 
         # stage 8: cleanup, logging, visualization, etc. (sync)
         if self.tokenizer is not None:
