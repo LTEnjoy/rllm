@@ -155,6 +155,14 @@ class ReverseProxy:
             worker = self.router.route(session_id)
             url = self._build_url(worker.api_url, request.url.path, str(request.url.query))
             headers = self._forward_headers(request)
+
+            save_path = "/sujin/temp.tsv"
+            with open(save_path, "wb") as f:
+                f.write(raw_body)
+
+            print("ltenjoy")
+            raise 1234
+
             try:
                 resp = await self._send_with_retry(
                     method=request.method,

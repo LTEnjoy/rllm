@@ -24,7 +24,7 @@ python -u train.py \
     rllm.algorithm.use_rllm=true \
     data.train_batch_size=8 \
     data.val_batch_size=256 \
-    data.max_response_length=8192 \
+    data.max_response_length=104 \
     +model.name=$MODEL_PATH \
     actor_rollout_ref.model.path=$MODEL_PATH \
     +actor_rollout_ref.model.lora.rank=32 \
