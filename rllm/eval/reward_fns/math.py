@@ -18,6 +18,7 @@ def evaluate(task: Task, episode: Episode) -> EvalOutput:
     answer_text = extract_answer_text(episode)
 
     model_answer = extract_answer(answer_text)
+
     if model_answer is None:
         return EvalOutput(
             reward=0.0,

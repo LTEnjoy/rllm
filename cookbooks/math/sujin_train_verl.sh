@@ -24,6 +24,7 @@ python -u train.py \
     rllm.algorithm.use_rllm=true \
     data.train_batch_size=8 \
     data.val_batch_size=256 \
+    data.max_response_length=8192 \
     +model.name=$MODEL_PATH \
     actor_rollout_ref.model.path=$MODEL_PATH \
     +actor_rollout_ref.model.lora.rank=32 \
@@ -45,14 +46,12 @@ python -u train.py \
     +actor_rollout_ref.rollout.engine_kwargs.vllm.enable_auto_tool_choice=true \
     +actor_rollout_ref.rollout.engine_kwargs.vllm.tool_call_parser=hermes \
     actor_rollout_ref.rollout.enforce_eager=False \
-    actor_rollout_ref.rollout.temperature=1.0 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
-    actor_rollout_ref.rollout.val_kwargs.temperature=0.6 \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
-    trainer.logger="['console', 'wandb']" \
+    trainer.logger="['console']" \
     trainer.project_name=math_tool_agent \
     trainer.experiment_name=qwen3-4b-gsm8k-lora-verl \
     trainer.val_before_train=True \

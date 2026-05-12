@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 
-from openai import AsyncOpenAI
+from openai import OpenAI
 
 import rllm
 from rllm.types import AgentConfig, Episode, Step, Task, Trajectory
@@ -42,20 +42,20 @@ Only the contents of the LAST \\boxed{...} in your reply will be graded.
 
 
 @rllm.rollout(name="math")
-async def math_flow(task: Task, config: AgentConfig) -> Episode:
+def math_flow(task: Task, config: AgentConfig) -> Episode:
     """One-shot math flow: LLM emits reasoning + boxed answer; evaluator grades."""
     meta = task.metadata or {}
     question = str(meta.get("question") or meta.get("problem") or task.instruction or "")
 
-    client = AsyncOpenAI(base_url=config.base_url, api_key="EMPTY")
+    client = OpenAI(base_url=config.base_url, api_key="EMPTY")
 
     messages: list[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": question},
     ]
-    
+
     try:
-        resp = await client.chat.completions.create(
+        resp = client.chat.completions.create(
             model=config.model,
             messages=messages,
             temperature=0.6,
@@ -81,5 +81,4 @@ async def math_flow(task: Task, config: AgentConfig) -> Episode:
         trajectories=[Trajectory(name="math", steps=[step])],
         artifacts={"answer": content},
     )
-    
     return episode
