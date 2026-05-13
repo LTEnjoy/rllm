@@ -76,7 +76,11 @@ class VerlEngine(RolloutEngine):
         max_tokens = sampling_params.pop("max_tokens", sampling_params.pop("max_new_tokens", self.max_response_length))
         # starting from verl 0.7.0, we can pass in per-turn max_tokens into the sampling_params
         sampling_params["max_tokens"] = max_tokens
-
+        
+        # save_path = "/sujin/tmp/verl_engine.tsv"
+        # with open(save_path, "w") as f:
+        #     f.write(f"{sampling_params}\n")
+        
         token_output = await self.server_manager.generate(
             request_id=application_id,
             prompt_ids=token_input,

@@ -59,7 +59,7 @@ def math_flow(task: Task, config: AgentConfig) -> Episode:
             model=config.model,
             messages=messages,
             temperature=0.6,
-            max_tokens=8192,
+            max_tokens=200,
             timeout=300,
         )
         content = resp.choices[0].message.content or ""

@@ -23,8 +23,9 @@ python -u train.py \
     algorithm.norm_adv_by_std_in_grpo=true \
     rllm.algorithm.use_rllm=true \
     data.train_batch_size=8 \
-    data.val_batch_size=256 \
-    data.max_response_length=104 \
+    data.val_batch_size=-1 \
+    data.val_max_samples=10 \
+    data.max_response_length=50 \
     +model.name=$MODEL_PATH \
     actor_rollout_ref.model.path=$MODEL_PATH \
     +actor_rollout_ref.model.lora.rank=32 \
@@ -39,7 +40,7 @@ python -u train.py \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=true \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.loss_agg_mode=seq-mean-token-mean \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=8 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.mode=async \
@@ -55,7 +56,7 @@ python -u train.py \
     trainer.project_name=math_tool_agent \
     trainer.experiment_name=qwen3-4b-gsm8k-lora-verl \
     trainer.val_before_train=True \
-    trainer.n_gpus_per_node=8 \
+    trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=100 \
     trainer.test_freq=10 \

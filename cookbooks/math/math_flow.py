@@ -59,7 +59,7 @@ async def math_flow(task: Task, config: AgentConfig) -> Episode:
             model=config.model,
             messages=messages,
             temperature=0.6,
-            max_tokens=204,
+            max_tokens=100,
             timeout=300,
         )
         content = resp.choices[0].message.content or ""
@@ -81,5 +81,10 @@ async def math_flow(task: Task, config: AgentConfig) -> Episode:
         trajectories=[Trajectory(name="math", steps=[step])],
         artifacts={"answer": content},
     )
+    
+    from transformers import AutoTokenizer
+    tokenizer = AutoTokenizer.from_pretrained("/sujin/Models/Qwen/Qwen3-4B")
+    tokens = tokenizer.encode(content)
+    print(len(content), len(tokens), "ltenjoy")
     
     return episode

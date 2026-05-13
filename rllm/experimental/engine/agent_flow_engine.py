@@ -269,6 +269,12 @@ class AgentFlowEngine:
             metadata=task,
             dataset_dir=Path("."),
         )
+        
+        save_path = "/sujin/tmp/agent_flow_engine.tsv"
+        with open(save_path, "w") as f:
+            f.write(f"{task_obj}\n")
+            f.write(f"{config}\n")
+        
         episode = await run_agent_flow(self.agent_flow, task_obj, config, executor=self.executor)
         logger.debug("[%s] Agent flow completed, %d trajectories", uid, len(episode.trajectories))
 

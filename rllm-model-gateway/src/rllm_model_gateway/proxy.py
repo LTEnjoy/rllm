@@ -127,7 +127,14 @@ class ReverseProxy:
             request_body = {}
 
         is_stream = request_body.get("stream", False)
-
+        
+        save_path = "/sujin/tmp/proxy.tsv"
+        with open(save_path, "w") as f:
+            f.write(f"is_stream\t{is_stream}\n")
+            f.write(f"request_body\t{request_body}\n")
+            f.write(f"request_body\t{body}\n")
+            f.write(f"request_body\t{request}\n")
+        
         if is_stream:
             return await self._handle_streaming(request, body, request_body, session_id, originally_requested_logprobs)
         return await self._handle_non_streaming(request, body, request_body, session_id, originally_requested_logprobs)
@@ -156,12 +163,12 @@ class ReverseProxy:
             url = self._build_url(worker.api_url, request.url.path, str(request.url.query))
             headers = self._forward_headers(request)
 
-            save_path = "/sujin/temp.tsv"
-            with open(save_path, "wb") as f:
-                f.write(raw_body)
-
-            print("ltenjoy")
-            raise 1234
+            # save_path = "/sujin/temp.tsv"
+            # with open(save_path, "wb") as f:
+            #     f.write(raw_body)
+            #
+            # print("ltenjoy")
+            # raise 1234
 
             try:
                 resp = await self._send_with_retry(

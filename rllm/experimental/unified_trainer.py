@@ -810,7 +810,7 @@ class UnifiedTrainer:
 
         is_correct_lst, uid_lst, data_source_lst = [], [], []
         workflow_metrics_by_source = defaultdict(lambda: defaultdict(list))
-
+        
         val_dataloader: Iterable = self.backend.get_dataloader(self.val_dataset, trainer_state)
         for batch in val_dataloader:
             # Generate episodes and transform to trajectory groups
