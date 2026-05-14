@@ -865,9 +865,7 @@ class UnifiedTrainer:
         # post-process the val metrics to reduce any "list values" into scalars
         reduce_metrics_lists(val_metrics)
         print_metrics_table(val_metrics, trainer_state.global_step, title="Validation")
-        import time as tmp_time
-        print(123456)
-        tmp_time.sleep(3600)
+
         self.logger.log(data=val_metrics, step=trainer_state.global_step)
         await self.backend.on_validation_end(trainer_state)
         return val_metrics

@@ -22,7 +22,7 @@ python -u train.py \
     algorithm.adv_estimator=grpo \
     algorithm.norm_adv_by_std_in_grpo=true \
     rllm.algorithm.use_rllm=true \
-    data.train_batch_size=64 \
+    data.train_batch_size=8 \
     data.val_batch_size=-1 \
     data.max_response_length=8192 \
     +model.name=$MODEL_PATH \
@@ -57,9 +57,9 @@ python -u train.py \
     trainer.val_before_train=True \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
-    trainer.save_freq=100 \
-    trainer.test_freq=10 \
-    trainer.total_epochs=1 \
+    trainer.save_freq=1000 \
+    trainer.test_freq=100 \
+    trainer.total_epochs=10 \
     trainer.default_hdfs_dir=null \
     trainer.resume_mode=disable \
     rllm.gateway.port=9091 \
