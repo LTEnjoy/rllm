@@ -241,16 +241,6 @@ class AgentFlowEngine:
         await self.gateway.acreate_session(uid, is_validation=is_validation)
         session_url = self.gateway.get_session_url(uid)
 
-        # ================================================================
-        # 调试信息：打印 Gateway session 和 AgentConfig
-        # ================================================================
-        print(f"\n{'='*60}")
-        print(f"【_run_single】uid={uid}")
-        print(f"  Gateway Session URL: {session_url}")
-        print(f"  AgentConfig model: {self.model}")
-        print(f"  AgentConfig base_url: {session_url}")
-        print(f"{'='*60}\n")
-
         # 2. Build config
         config = AgentConfig(
             base_url=session_url,
@@ -269,50 +259,12 @@ class AgentFlowEngine:
             metadata=task,
             dataset_dir=Path("."),
         )
-        
-        save_path = "/sujin/tmp/agent_flow_engine.tsv"
-        with open(save_path, "w") as f:
-            f.write(f"{task_obj}\n")
-            f.write(f"{config}\n")
-        
+
         episode = await run_agent_flow(self.agent_flow, task_obj, config, executor=self.executor)
         logger.debug("[%s] Agent flow completed, %d trajectories", uid, len(episode.trajectories))
 
-        # ================================================================
-        # 调试信息：打印原始 Episode 结构
-        # ================================================================
-        n_trajs = len(episode.trajectories)
-        n_steps = sum(len(t.steps) for t in episode.trajectories)
-        artifact_keys = list(episode.artifacts.keys()) if episode.artifacts else []
-        print(f"{'='*60}")
-        print(f"【_run_single】uid={uid} - AgentFlow 执行完毕（尚未 enrichment）")
-        print(f"  Trajectory 数量: {n_trajs}")
-        print(f"  Step 总数: {n_steps}")
-        print(f"  Artifacts keys: {artifact_keys}")
-        for i, t in enumerate(episode.trajectories):
-            print(f"    Traj[{i}] '{t.name}': {len(t.steps)} steps")
-        print(f"{'='*60}\n")
-
         # 4. Retrieve traces from gateway and enrich episode with token data.
         traces = await self.gateway.aget_traces(uid)
-
-        # ================================================================
-        # 调试信息：打印 Gateway traces
-        # ================================================================
-        if traces:
-            trace_0 = traces[0]
-            inp_len = len(getattr(trace_0, "input_tokens", []))
-            out_len = len(getattr(trace_0, "output_tokens", []))
-            print(f"{'='*60}")
-            print(f"【_run_single】uid={uid} - Gateway Traces")
-            print(f"  Trace 数量: {len(traces)}")
-            print(f"  第1个 Trace - input_tokens 长度: {inp_len}")
-            print(f"  第1个 Trace - output_tokens 长度: {out_len}")
-            print(f"{'='*60}\n")
-        else:
-            print(f"{'='*60}")
-            print(f"【_run_single】uid={uid} - Gateway Traces: 无 traces (空列表)")
-            print(f"{'='*60}\n")
 
         enriched = self._enrich_episode(episode, traces, uid, task)
 
@@ -323,29 +275,6 @@ class AgentFlowEngine:
             task,
             enriched,
         )
-
-        # ================================================================
-        # 调试信息：打印 EvalOutput 和 reward 分配结果
-        # ================================================================
-        # 统计 enriched episode 中每个 step 的 token 信息
-        total_tokens = 0
-        has_logprob = False
-        for t in enriched.trajectories:
-            for s in t.steps:
-                if hasattr(s, "model_output") and s.model_output:
-                    total_tokens += len(getattr(s.model_output, "completion_ids", []))
-                if hasattr(s, "logprob") and s.logprob is not None:
-                    has_logprob = True
-
-        print(f"{'='*60}")
-        print(f"【_run_single】uid={uid} - Evaluator 评估完毕")
-        print(f"  EvalOutput reward: {eval_output.reward}")
-        print(f"  EvalOutput is_correct: {eval_output.is_correct}")
-        print(f"  丰富后 Step 总 token 数 (completion_ids): {total_tokens}")
-        print(f"  是否有 logprob: {has_logprob}")
-        for i, t in enumerate(enriched.trajectories):
-            print(f"    Traj[{i}] '{t.name}': reward={t.reward}")
-        print(f"{'='*60}\n")
 
         # Apply reward to trajectories that don't already have one.
         # Evaluators for multi-trajectory flows (e.g. solver-judge) may set

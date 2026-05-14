@@ -194,9 +194,6 @@ class GatewayManager:
 
     async def acreate_session(self, session_id: str, is_validation: bool = False) -> str:
         sp = self._val_sampling_params if is_validation else self._train_sampling_params
-        save_path = "/sujin/tmp/gateway_manager.tsv"
-        with open(save_path, "w") as f:
-            f.write(f"Creating session {session_id} with sampling params: {sp}\n")
         
         return await self.async_client.create_session(session_id=session_id, sampling_params=sp or None)
 
