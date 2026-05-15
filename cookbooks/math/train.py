@@ -25,8 +25,8 @@ def main(config: DictConfig):
     # ================================================================
     # 调试信息：打印数据集信息
     # ================================================================
-    train_dataset = DatasetRegistry.load_dataset("gsm8k", "train")
-    test_dataset = DatasetRegistry.load_dataset("gsm8k", "test")
+    train_dataset = DatasetRegistry.load_dataset("deepscaler_math", "train")
+    test_dataset = DatasetRegistry.load_dataset("aime2024", "test")
     
     print(f"\n  训练集样本数: {len(train_dataset)}")
     print(f"  测试集样本数: {len(test_dataset)}")

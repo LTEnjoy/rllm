@@ -15,7 +15,7 @@ export VLLM_LOGGING_LEVEL=WARN
 export VERL_LOGGING_LEVEL=WARN
 export NCCL_DEBUG=WARN
 
-MODEL_PATH=/sujin/Models/Qwen/Qwen3-0.6B
+MODEL_PATH=/sujin/Models/Qwen/Qwen3-4B
 
 python -u train.py \
     rllm/backend=verl \
@@ -43,6 +43,7 @@ python -u train.py \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.mode=async \
+    actor_rollout_ref.rollout.temperature=1.0 \
     +actor_rollout_ref.rollout.engine_kwargs.vllm.enable_auto_tool_choice=true \
     +actor_rollout_ref.rollout.engine_kwargs.vllm.tool_call_parser=hermes \
     actor_rollout_ref.rollout.enforce_eager=False \
@@ -50,15 +51,16 @@ python -u train.py \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
+    actor_rollout_ref.rollout.val_kwargs.temperature=0.6 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
     trainer.logger="['console', 'wandb']" \
     trainer.project_name=math_tool_agent \
-    trainer.experiment_name=qwen3-0.6b-gsm8k-lora-verl \
+    trainer.experiment_name=qwen3-4b-aime2024-lora \
     trainer.val_before_train=True \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
-    trainer.save_freq=1000 \
-    trainer.test_freq=100 \
+    trainer.save_freq=100 \
+    trainer.test_freq=10 \
     trainer.total_epochs=10 \
     trainer.default_hdfs_dir=null \
     trainer.resume_mode=disable \
