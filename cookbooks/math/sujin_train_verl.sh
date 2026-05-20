@@ -24,14 +24,11 @@ python -u train.py \
     rllm.algorithm.use_rllm=true \
     data.train_batch_size=8 \
     data.val_batch_size=-1 \
-    data.max_response_length=8192 \
+    data.max_response_length=2048 \
     +model.name=$MODEL_PATH \
     actor_rollout_ref.model.path=$MODEL_PATH \
-    +actor_rollout_ref.model.lora.rank=32 \
-    +actor_rollout_ref.model.lora.alpha=32 \
-    +actor_rollout_ref.model.lora.merge=true \
     actor_rollout_ref.hybrid_engine=True \
-    actor_rollout_ref.actor.optim.lr=5e-6 \
+    actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.ppo_mini_batch_size=8 \
     actor_rollout_ref.actor.ppo_micro_batch_size=8 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
@@ -55,7 +52,7 @@ python -u train.py \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
     trainer.logger="['console', 'wandb']" \
     trainer.project_name=math_tool_agent \
-    trainer.experiment_name=qwen3-4b-aime2024-lora \
+    trainer.experiment_name=qwen3-4b-aime2024 \
     trainer.val_before_train=True \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
