@@ -15,22 +15,23 @@ export VLLM_LOGGING_LEVEL=WARN
 export VERL_LOGGING_LEVEL=WARN
 export NCCL_DEBUG=WARN
 
-MODEL_PATH=/sujin/Models/Qwen/Qwen3-4B
+MODEL_PATH=/sujin/Models/Qwen/Qwen3-0.6B
 
 python -u train.py \
     rllm/backend=verl \
     algorithm.adv_estimator=grpo \
     algorithm.norm_adv_by_std_in_grpo=true \
     rllm.algorithm.use_rllm=true \
-    data.train_batch_size=8 \
+    data.train_batch_size=64 \
     data.val_batch_size=-1 \
-    data.max_response_length=2048 \
+    data.max_prompt_length=8192 \
+    data.max_response_length=8192 \
     +model.name=$MODEL_PATH \
     actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.hybrid_engine=True \
     actor_rollout_ref.actor.optim.lr=1e-6 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=8 \
-    actor_rollout_ref.actor.ppo_micro_batch_size=8 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=64 \
+    actor_rollout_ref.actor.ppo_micro_batch_size=64 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=true \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=true \
@@ -47,12 +48,12 @@ python -u train.py \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
-    actor_rollout_ref.rollout.val_kwargs.do_sample=True \
-    actor_rollout_ref.rollout.val_kwargs.temperature=0.6 \
+    actor_rollout_ref.rollout.val_kwargs.do_sample=False \
+    actor_rollout_ref.rollout.val_kwargs.temperature=0 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
     trainer.logger="['console', 'wandb']" \
     trainer.project_name=math_tool_agent \
-    trainer.experiment_name=qwen3-4b-aime2024 \
+    trainer.experiment_name=qwen3-0.6b-aime2024 \
     trainer.val_before_train=True \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
