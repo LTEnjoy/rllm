@@ -15,7 +15,7 @@ export VLLM_LOGGING_LEVEL=WARN
 export VERL_LOGGING_LEVEL=WARN
 export NCCL_DEBUG=WARN
 
-MODEL_PATH=/sujin/Models/Qwen/Qwen3-0.6B
+MODEL_PATH=/sujin/Models/Qwen/Qwen3-4B
 
 python -u train.py \
     rllm/backend=verl \
@@ -24,8 +24,8 @@ python -u train.py \
     rllm.algorithm.use_rllm=true \
     data.train_batch_size=64 \
     data.val_batch_size=-1 \
-    data.max_prompt_length=8192 \
-    data.max_response_length=8192 \
+    data.max_prompt_length=512 \
+    data.max_response_length=512 \
     +model.name=$MODEL_PATH \
     actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.hybrid_engine=True \
@@ -53,7 +53,7 @@ python -u train.py \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
     trainer.logger="['console', 'wandb']" \
     trainer.project_name=math_tool_agent \
-    trainer.experiment_name=qwen3-0.6b-aime2024 \
+    trainer.experiment_name=qwen3-4b-gsm8k \
     trainer.val_before_train=True \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
