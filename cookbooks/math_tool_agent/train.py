@@ -19,7 +19,7 @@ from rllm.experimental.unified_trainer import AgentTrainer
 @hydra.main(config_path="pkg://rllm.experimental.config", config_name="unified", version_base=None)
 def main(config: DictConfig):
     train_dataset = DatasetRegistry.load_dataset("deepscaler_math", "train")
-    test_dataset = DatasetRegistry.load_dataset("aime2024", "test")
+    test_dataset = DatasetRegistry.load_dataset("math500", "test")
 
     if train_dataset is None:
         raise RuntimeError("deepscaler_math train split not found. Run: rllm dataset pull deepscaler_math")
