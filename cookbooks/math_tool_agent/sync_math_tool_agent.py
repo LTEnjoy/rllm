@@ -258,7 +258,7 @@ def math_tool_agent(task: Task, config: AgentConfig) -> Episode:
                 model=config.model,
                 messages=messages,
                 tools=TOOLS,
-                temperature=0,
+                temperature=1,
                 max_tokens=2048,
                 timeout=120,
             )

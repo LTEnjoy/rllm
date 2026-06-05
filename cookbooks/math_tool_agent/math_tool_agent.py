@@ -259,7 +259,7 @@ async def math_tool_agent(task: Task, config: AgentConfig) -> Episode:
                 messages=messages,
                 tools=TOOLS,
                 temperature=1.0,
-                max_tokens=2048,
+                max_tokens=8192,
                 timeout=120,
             )
         except Exception as e:
