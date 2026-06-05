@@ -63,4 +63,5 @@ python -u train.py \
     trainer.default_hdfs_dir=null \
     trainer.resume_mode=disable \
     rllm.gateway.port=9091 \
+    rllm.workflow.n_parallel_tasks=16 \
     "$@"

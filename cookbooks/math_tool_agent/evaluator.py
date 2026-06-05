@@ -19,7 +19,6 @@ def math_tool_evaluator(task: dict, episode: Episode) -> EvalOutput:
     # math500 carries the answer in `answer` and the full solution in `ground_truth`;
     # gsm8k and others carry the answer in `ground_truth`. Prefer `answer`.
     ground_truth = str(task.get("answer") or task.get("ground_truth") or "")
-
     # Check whether there exists tool calls in the episode
     # has_tool_call = False
     # valid_tool_call = True

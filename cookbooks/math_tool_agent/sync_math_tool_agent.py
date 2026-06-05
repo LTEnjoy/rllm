@@ -251,15 +251,14 @@ def math_tool_agent(task: Task, config: AgentConfig) -> Episode:
 
     steps = []
     final_answer = ""
-
     for turn in range(MAX_TURNS):
         try:
             response = client.chat.completions.create(
                 model=config.model,
                 messages=messages,
                 tools=TOOLS,
-                temperature=1,
-                max_tokens=2048,
+                temperature=1.0,
+                max_tokens=8192,
                 timeout=120,
             )
         except Exception as e:
