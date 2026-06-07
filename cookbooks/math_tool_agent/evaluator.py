@@ -23,6 +23,9 @@ def math_tool_evaluator(task: dict, episode: Episode) -> EvalOutput:
     has_tool_call = False
     valid_tool_call = True
     for traj in episode.trajectories:
+        if len(traj.steps) == 0:
+            continue
+
         messages = traj.steps[-1].chat_completions
         for msg in messages:
             if msg["role"] == "tool":
