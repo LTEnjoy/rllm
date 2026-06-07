@@ -260,7 +260,7 @@ async def math_tool_agent(task: Task, config: AgentConfig) -> Episode:
                 tools=TOOLS,
                 temperature=1.0,
                 max_tokens=8192,
-                timeout=120,
+                timeout=480,
             )
         except Exception as e:
             logger.warning("Task %s turn %d: LLM call failed: %s", question[:40], turn, e)

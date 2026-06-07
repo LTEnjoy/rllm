@@ -20,18 +20,18 @@ def math_tool_evaluator(task: dict, episode: Episode) -> EvalOutput:
     # gsm8k and others carry the answer in `ground_truth`. Prefer `answer`.
     ground_truth = str(task.get("answer") or task.get("ground_truth") or "")
     # Check whether there exists tool calls in the episode
-    # has_tool_call = False
-    # valid_tool_call = True
-    # for traj in episode.trajectories:
-    #     messages = traj.steps[-1].chat_completions
-    #     for msg in messages:
-    #         if msg["role"] == "tool":
-    #             has_tool_call = True
-    #             if "error" in msg["content"].lower():
-    #                 valid_tool_call = False
+    has_tool_call = False
+    valid_tool_call = True
+    for traj in episode.trajectories:
+        messages = traj.steps[-1].chat_completions
+        for msg in messages:
+            if msg["role"] == "tool":
+                has_tool_call = True
+                if "error" in msg["content"].lower():
+                    valid_tool_call = False
 
     is_correct = grade_answer_mathd(answer_text, ground_truth) or grade_answer_sympy(answer_text, ground_truth)
-    # is_correct = is_correct and has_tool_call and valid_tool_call
+    is_correct = is_correct and has_tool_call and valid_tool_call
 
     reward = 1.0 if is_correct else 0.0
     return EvalOutput(

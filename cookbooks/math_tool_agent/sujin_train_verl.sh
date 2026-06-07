@@ -50,11 +50,11 @@ python -u train.py \
     actor_rollout_ref.rollout.val_kwargs.temperature=0.6 \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=64 \
-    trainer.logger="['console']" \
+    trainer.logger="['console', 'wandb']" \
     trainer.project_name=math_tool_agent \
     trainer.experiment_name=qwen3-4b-math_tool-verl \
     trainer.val_before_train=True \
-    trainer.val_only=True \
+    trainer.val_only=False \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
     trainer.save_freq=100 \
