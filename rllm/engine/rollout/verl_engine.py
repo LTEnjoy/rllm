@@ -49,6 +49,11 @@ class VerlEngine(RolloutEngine):
         self.validate = False
 
     async def get_model_response(self, messages: list[dict], **kwargs) -> ModelOutput:
+        print(messages)
+        print("get_model_response")
+        import time
+        time.sleep(3600)
+
         application_id = kwargs.pop("application_id", str(uuid.uuid4()))
         validate = self.validate or kwargs.pop("validate", False)
         enforce_max_prompt_length = kwargs.pop("enforce_max_prompt_length", True)

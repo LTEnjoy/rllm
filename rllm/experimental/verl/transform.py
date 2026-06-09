@@ -143,7 +143,16 @@ def _batch_tensors_and_build_data_proto(accumulated: AccumulatedData, pad_token_
     Returns:
         DataProto: The DataProto built from the AccumulatedData.
     """
+    # for prompt in accumulated.prompts:
+    #     print(len(prompt))
+    #
+    # print(len(accumulated.prompts))
+    # print(1111111)
+
     prompts_batch = _pad_sequence_batch(accumulated.prompts, pad_token_id, max_prompt_length, left_pad=True)  # shape: [bs, max_prompt_length]
+    # import time
+    # time.sleep(3600)
+
     responses_batch = _pad_sequence_batch(accumulated.responses, pad_token_id, max_response_length, left_pad=False)  # shape: [bs, max_response_length]
     input_ids = torch.concat([prompts_batch, responses_batch], dim=1)  # shape: [bs, max_prompt_length + max_response_length]
 

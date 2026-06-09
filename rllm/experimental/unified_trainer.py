@@ -418,6 +418,10 @@ class UnifiedTrainer:
         # ================================================================
         # Stage 1: 生成 episodes
         # ================================================================
+        # print(batch)
+        # import time
+        # time.sleep(3600)
+
         trainer_state.episodes = await self.backend.generate_episodes(batch, agent_workflow_engine=self.agent_workflow_engine, is_validation=False)
         if not trainer_state.has_episodes:
             return

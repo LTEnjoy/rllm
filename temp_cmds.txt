@@ -6,7 +6,8 @@ env CUDA_VISIBLE_DEVICES=1,2,3,4,5,6,7 python -m vllm.entrypoints.openai.api_ser
     --tensor-parallel-size 4 \
     --gpu_memory_utilization 0.9 \
     --enable-auto-tool-choice \
-    --tool-call-parser hermes
+    --tool-call-parser hermes \
+    --override-generation-config '{"temperature": 0}'
 
 env CUDA_VISIBLE_DEVICES=1,2,3,4,5,6,7 python -m vllm.entrypoints.openai.api_server \
     --model /sujin/PycharmProjects/rllm/cookbooks/math_tool_agent/checkpoints/math_tool_agent/qwen3-4b-math_tool-verl/global_step_500/actor/huggingface                                                                                                               \

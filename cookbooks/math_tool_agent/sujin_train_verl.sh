@@ -17,9 +17,9 @@ python -u train.py \
     algorithm.adv_estimator=grpo \
     algorithm.norm_adv_by_std_in_grpo=true \
     rllm.algorithm.use_rllm=true \
-    data.train_batch_size=8 \
+    data.train_batch_size=1 \
     data.val_batch_size=-1 \
-    data.max_prompt_length=2048 \
+    data.max_prompt_length=200 \
     data.max_response_length=8192 \
     +model.name=$MODEL_PATH \
     actor_rollout_ref.model.path=$MODEL_PATH \
@@ -50,10 +50,10 @@ python -u train.py \
     actor_rollout_ref.rollout.val_kwargs.temperature=0.6 \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=64 \
-    trainer.logger="['console', 'wandb']" \
+    trainer.logger="['console']" \
     trainer.project_name=math_tool_agent \
     trainer.experiment_name=qwen3-4b-math_tool-verl \
-    trainer.val_before_train=True \
+    trainer.val_before_train=False \
     trainer.val_only=False \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
