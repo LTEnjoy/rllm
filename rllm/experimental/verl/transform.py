@@ -143,11 +143,11 @@ def _batch_tensors_and_build_data_proto(accumulated: AccumulatedData, pad_token_
     Returns:
         DataProto: The DataProto built from the AccumulatedData.
     """
-    # for prompt in accumulated.prompts:
-    #     print(len(prompt))
-    #
-    # print(len(accumulated.prompts))
-    # print(1111111)
+    for prompt in accumulated.prompts:
+        print(len(prompt))
+
+    print(len(accumulated.prompts))
+    print(1111111)
 
     prompts_batch = _pad_sequence_batch(accumulated.prompts, pad_token_id, max_prompt_length, left_pad=True)  # shape: [bs, max_prompt_length]
     # import time
